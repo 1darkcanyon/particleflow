@@ -2,6 +2,7 @@
 #define VULKAN_HELPERS_H
 
 #include <vulkan/vulkan.h>
+#include <vulkan/vulkan_android.h>
 #include <android/log.h>
 #include <vector>
 #include <string>
