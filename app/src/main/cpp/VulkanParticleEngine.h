@@ -136,6 +136,7 @@ private:
     bool createComputePipelines();
     bool createGraphicsPipeline();
     bool createCommandBuffers();
+    void createOrthoMatrix(float* matrix, float left, float right, float bottom, float top, float near, float far);
     bool createSyncObjects();
     
     // Shader loading
