@@ -671,3 +671,309 @@ bool VulkanParticleEngine::createComputeDescriptorSets() {
 // CONSTRUCTOR & DESTRUCTOR
 // ============================================================================
 
+bool VulkanParticleEngine::createComputePipelines() {
+    // Load shader modules from compiled SPIR-V
+    std::vector<uint32_t> initShaderCode = loadShader("particle_init.spv");
+    std::vector<uint32_t> updateShaderCode = loadShader("particle_update.spv");
+    
+    VkShaderModule initShader = VulkanHelpers::createShaderModule(device, initShaderCode);
+    VkShaderModule updateShader = VulkanHelpers::createShaderModule(device, updateShaderCode);
+    
+    // Push constant range for compute parameters
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(ParticleParams);
+    
+    // Create pipeline layout
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &computeDescriptorSetLayout;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+    
+    vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &computePipelineLayout);
+    
+    // Create init pipeline
+    VulkanHelpers::createComputePipeline(device, initShader, computePipelineLayout, initPipeline);
+    
+    // Create update pipeline
+    VulkanHelpers::createComputePipeline(device, updateShader, computePipelineLayout, updatePipeline);
+    
+    vkDestroyShaderModule(device, initShader, nullptr);
+    vkDestroyShaderModule(device, updateShader, nullptr);
+    
+    return true;
+}
+
+bool VulkanParticleEngine::createGraphicsPipeline() {
+    std::vector<uint32_t> vertShaderCode = loadShader("particle_render_vert.spv");
+    std::vector<uint32_t> fragShaderCode = loadShader("particle_render_frag.spv");
+    
+    VkShaderModule vertShader = VulkanHelpers::createShaderModule(device, vertShaderCode);
+    VkShaderModule fragShader = VulkanHelpers::createShaderModule(device, fragShaderCode);
+    
+    // Push constant for MVP matrix + point size
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(float) * 16 + sizeof(float); // mat4 + float
+    
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+    
+    vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &graphicsPipelineLayout);
+    
+    VulkanHelpers::createGraphicsPipeline(device, vertShader, fragShader, 
+                                         graphicsPipelineLayout, renderPass, graphicsPipeline);
+    
+    vkDestroyShaderModule(device, vertShader, nullptr);
+    vkDestroyShaderModule(device, fragShader, nullptr);
+    
+    return true;
+}
+
+void VulkanParticleEngine::initParticles() {
+    // Record compute command to initialize particles
+    VkCommandBuffer commandBuffer = VulkanHelpers::beginSingleTimeCommands(device, computeCommandPool);
+    
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, initPipeline);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, 
+                           computePipelineLayout, 0, 1, &computeInitDescriptorSet, 0, nullptr);
+    
+    // Update push constants with current parameters
+    vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
+                      0, sizeof(ParticleParams), &params);
+    
+    // Dispatch compute shader (256 threads per workgroup)
+    uint32_t workgroupCount = (params.numParticles + 255) / 256;
+    vkCmdDispatch(commandBuffer, workgroupCount, 1, 1);
+    
+    VulkanHelpers::endSingleTimeCommands(device, computeQueue, computeCommandPool, commandBuffer);
+    
+    LOGI("Particles initialized: %d particles", params.numParticles);
+}
+
+void VulkanParticleEngine::updateParticles() {
+    // Update touch buffer
+    updateTouchBuffer();
+    
+    // Record compute command to update particles
+    VkCommandBuffer commandBuffer = VulkanHelpers::beginSingleTimeCommands(device, computeCommandPool);
+    
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, updatePipeline);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                           computePipelineLayout, 0, 1, &computeUpdateDescriptorSet, 0, nullptr);
+    
+    vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
+                      0, sizeof(ParticleParams), &params);
+    
+    uint32_t workgroupCount = (params.numParticles + 255) / 256;
+    vkCmdDispatch(commandBuffer, workgroupCount, 1, 1);
+    
+    VulkanHelpers::endSingleTimeCommands(device, computeQueue, computeCommandPool, commandBuffer);
+}
+
+void VulkanParticleEngine::updateTouchBuffer() {
+    // Touch data is already in touchMapped (permanently mapped staging buffer)
+    // Copy from staging to device-local buffer
+    VulkanHelpers::copyBuffer(device, graphicsQueue, graphicsCommandPool,
+                             touchStagingBuffer, touchBuffer, 
+                             sizeof(float) * 2 * params.numTouchPoints);
+}
+
+void VulkanParticleEngine::setTouch(uint32_t index, float x, float y) {
+    if (index >= params.numTouchPoints || !touchMapped) {
+        return;
+    }
+    
+    touchMapped[index * 2] = x;
+    touchMapped[index * 2 + 1] = y;
+}
+
+void VulkanParticleEngine::render() {
+    // Wait for previous frame
+    vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
+    
+    // Acquire image from swapchain
+    uint32_t imageIndex;
+    VkResult result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
+                                           imageAvailableSemaphores[currentFrame], 
+                                           VK_NULL_HANDLE, &imageIndex);
+    
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        recreateSwapchain();
+        return;
+    }
+    
+    vkResetFences(device, 1, &inFlightFences[currentFrame]);
+    
+    // Record command buffer
+    VkCommandBuffer commandBuffer = commandBuffers[currentFrame];
+    vkResetCommandBuffer(commandBuffer, 0);
+    
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    
+    // Begin render pass
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = renderPass;
+    renderPassInfo.framebuffer = swapchainFramebuffers[imageIndex];
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = swapchainExtent;
+    
+    VkClearValue clearColor = {{{
+        (params.bgColor >> 16 & 0xFF) / 255.0f,
+        (params.bgColor >> 8 & 0xFF) / 255.0f,
+        (params.bgColor & 0xFF) / 255.0f,
+        1.0f
+    }}};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearColor;
+    
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    
+    // Bind graphics pipeline
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+    
+    // Set viewport and scissor
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = (float)swapchainExtent.width;
+    viewport.height = (float)swapchainExtent.height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+    
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = swapchainExtent;
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+    
+    // Create orthographic projection matrix
+    float mvpMatrix[16];
+    createOrthoMatrix(mvpMatrix, 0, params.width, 0, params.height, -1, 1);
+    
+    // Push constants (MVP + point size)
+    struct {
+        float mvp[16];
+        float pointSize;
+    } pushData;
+    memcpy(pushData.mvp, mvpMatrix, sizeof(float) * 16);
+    pushData.pointSize = (float)params.particleSize;
+    
+    vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
+                      0, sizeof(pushData), &pushData);
+    
+    // Bind vertex buffers
+    VkBuffer vertexBuffers[] = { positionBuffer, colorBuffer };
+    VkDeviceSize offsets[] = { 0, 0 };
+    vkCmdBindVertexBuffers(commandBuffer, 0, 2, vertexBuffers, offsets);
+    
+    // Draw particles
+    vkCmdDraw(commandBuffer, params.numParticles, 1, 0, 0);
+    
+    vkCmdEndRenderPass(commandBuffer);
+    vkEndCommandBuffer(commandBuffer);
+    
+    // Submit command buffer
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    
+    VkSemaphore waitSemaphores[] = { imageAvailableSemaphores[currentFrame] };
+    VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = waitSemaphores;
+    submitInfo.pWaitDstStageMask = waitStages;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+    
+    VkSemaphore signalSemaphores[] = { renderFinishedSemaphores[currentFrame] };
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signalSemaphores;
+    
+    vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]);
+    
+    // Present
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = signalSemaphores;
+    
+    VkSwapchainKHR swapchains[] = { swapchain };
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = swapchains;
+    presentInfo.pImageIndices = &imageIndex;
+    
+    vkQueuePresentKHR(presentQueue, &presentInfo);
+    
+    currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+}
+
+void VulkanParticleEngine::createOrthoMatrix(float* matrix, float left, float right, 
+                                            float bottom, float top, float near, float far) {
+    memset(matrix, 0, sizeof(float) * 16);
+    matrix[0] = 2.0f / (right - left);
+    matrix[5] = 2.0f / (top - bottom);
+    matrix[10] = -2.0f / (far - near);
+    matrix[12] = -(right + left) / (right - left);
+    matrix[13] = -(top + bottom) / (top - bottom);
+    matrix[14] = -(far + near) / (far - near);
+    matrix[15] = 1.0f;
+}
+
+void VulkanParticleEngine::cleanup() {
+    if (device != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(device);
+        
+        // Cleanup all Vulkan resources...
+        // (Destroy buffers, pipelines, descriptors, swapchain, etc.)
+        
+        LOGI("Vulkan cleanup complete");
+    }
+}
+
+bool VulkanParticleEngine::createCommandBuffers() {
+    commandBuffers.resize(swapchainFramebuffers.size());
+
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = (uint32_t)commandBuffers.size();
+
+    if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
+        LOGE("Failed to allocate command buffers");
+        return false;
+    }
+    return true;
+}
+
+bool VulkanParticleEngine::createSyncObjects() {
+    imageAvailableSemaphores.resize(2);
+    renderFinishedSemaphores.resize(2);
+    inFlightFences.resize(2);
+
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    for (size_t i = 0; i < 2; i++) {
+        if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
+            vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS ||
+            vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS) {
+            LOGE("Failed to create sync objects");
+            return false;
+        }
+    }
+    return true;
+}
