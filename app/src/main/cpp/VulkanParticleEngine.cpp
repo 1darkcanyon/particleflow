@@ -3,6 +3,7 @@
 #include <cmath>
 #include <random>
 #include <algorithm>
+#include <set>
 
 // Embedded SPIR-V shader bytecode
 // In production, you'd load these from assets or compile at build time
@@ -663,6 +664,7 @@ bool VulkanParticleEngine::createComputeDescriptorSets() {
 #include <cmath>
 #include <random>
 #include <algorithm>
+#include <set>
 #include <set>
 
 // ============================================================================
