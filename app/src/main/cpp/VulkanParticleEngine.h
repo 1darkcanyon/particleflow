@@ -3,6 +3,7 @@
 
 #include "VulkanHelpers.h"
 #include <android/native_window.h>
+#include <android/asset_manager.h>
 #include <vector>
 
 // Parameters matching RenderScript version
@@ -31,6 +32,7 @@ public:
     
     // Initialize Vulkan with surface
     bool initialize(ANativeWindow* window);
+    void setAssetManager(AAssetManager* mgr) { assetManager = mgr; }
     
     // Cleanup
     void cleanup();
@@ -57,6 +59,7 @@ private:
     // Vulkan instance and device
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+    AAssetManager* assetManager = nullptr;
     VkDevice device = VK_NULL_HANDLE;
     VkQueue graphicsQueue = VK_NULL_HANDLE;
     VkQueue computeQueue = VK_NULL_HANDLE;

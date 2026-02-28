@@ -977,3 +977,44 @@ bool VulkanParticleEngine::createSyncObjects() {
     }
     return true;
 }
+
+void VulkanParticleEngine::setParameters(const ParticleParams& newParams) {
+    params = newParams;
+}
+
+void VulkanParticleEngine::onSurfaceChanged(int width, int height) {
+    params.width = width;
+    params.height = height;
+    recreateSwapchain();
+}
+
+std::vector<uint32_t> VulkanParticleEngine::loadShader(const char* name) {
+    AAsset* asset = AAssetManager_open(assetManager, name, AASSET_MODE_BUFFER);
+    if (!asset) {
+        LOGE("Failed to open shader asset: %s", name);
+        return {};
+    }
+    size_t size = AAsset_getLength(asset);
+    std::vector<uint32_t> buffer(size / sizeof(uint32_t));
+    AAsset_read(asset, buffer.data(), size);
+    AAsset_close(asset);
+    return buffer;
+}
+
+void VulkanParticleEngine::recreateSwapchain() {
+    vkDeviceWaitIdle(device);
+    cleanupSwapchain();
+    createSwapchain();
+    createImageViews();
+    createFramebuffers();
+}
+
+void VulkanParticleEngine::cleanupSwapchain() {
+    for (auto framebuffer : swapchainFramebuffers) {
+        vkDestroyFramebuffer(device, framebuffer, nullptr);
+    }
+    for (auto imageView : swapchainImageViews) {
+        vkDestroyImageView(device, imageView, nullptr);
+    }
+    vkDestroySwapchainKHR(device, swapchain, nullptr);
+}
