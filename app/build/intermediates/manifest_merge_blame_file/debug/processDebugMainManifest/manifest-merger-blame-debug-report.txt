@@ -1,0 +1,88 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.nfaralli.particleflow"
+4    android:versionCode="20000"
+5    android:versionName="2.0.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="24"
+9        android:targetSdkVersion="34" />
+10
+11    <uses-feature
+11-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:4:5-6:35
+12        android:name="android.hardware.vulkan.version"
+12-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:4:19-65
+13        android:required="true"
+13-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:6:9-32
+14        android:version="0x400003" />
+14-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:5:9-35
+15
+16    <permission
+16-->[androidx.core:core:1.9.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/98590e419749a9ca9b438d1e86d31114/transformed/core-1.9.0/AndroidManifest.xml:22:5-24:47
+17        android:name="com.nfaralli.particleflow.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+17-->[androidx.core:core:1.9.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/98590e419749a9ca9b438d1e86d31114/transformed/core-1.9.0/AndroidManifest.xml:23:9-81
+18        android:protectionLevel="signature" />
+18-->[androidx.core:core:1.9.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/98590e419749a9ca9b438d1e86d31114/transformed/core-1.9.0/AndroidManifest.xml:24:9-44
+19
+20    <uses-permission android:name="com.nfaralli.particleflow.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+20-->[androidx.core:core:1.9.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/98590e419749a9ca9b438d1e86d31114/transformed/core-1.9.0/AndroidManifest.xml:26:5-97
+20-->[androidx.core:core:1.9.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/98590e419749a9ca9b438d1e86d31114/transformed/core-1.9.0/AndroidManifest.xml:26:22-94
+21
+22    <application
+22-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:8:5-24:19
+23        android:allowBackup="true"
+23-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:9:9-35
+24        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+24-->[androidx.core:core:1.9.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/98590e419749a9ca9b438d1e86d31114/transformed/core-1.9.0/AndroidManifest.xml:28:18-86
+25        android:debuggable="true"
+26        android:extractNativeLibs="false"
+27        android:label="ParticleFlow"
+27-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:10:9-37
+28        android:theme="@style/Theme.AppCompat.NoActionBar" >
+28-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:11:9-59
+29        <activity
+29-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:13:9-22:20
+30            android:name="com.nfaralli.particleflow.MainActivity"
+30-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:14:13-41
+31            android:configChanges="orientation|screenSize"
+31-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:17:13-59
+32            android:exported="true"
+32-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:15:13-36
+33            android:screenOrientation="landscape" >
+33-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:16:13-50
+34            <intent-filter>
+34-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:18:13-21:29
+35                <action android:name="android.intent.action.MAIN" />
+35-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:19:17-69
+35-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:19:25-66
+36
+37                <category android:name="android.intent.category.LAUNCHER" />
+37-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:20:17-77
+37-->/data/data/com.termux/files/home/ParticleFlowVulkan/app/src/main/AndroidManifest.xml:20:27-74
+38            </intent-filter>
+39        </activity>
+40
+41        <provider
+41-->[androidx.emoji2:emoji2:1.2.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/343ab86ff5f5bda90d2f61290fe5dc34/transformed/emoji2-1.2.0/AndroidManifest.xml:24:9-32:20
+42            android:name="androidx.startup.InitializationProvider"
+42-->[androidx.emoji2:emoji2:1.2.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/343ab86ff5f5bda90d2f61290fe5dc34/transformed/emoji2-1.2.0/AndroidManifest.xml:25:13-67
+43            android:authorities="com.nfaralli.particleflow.androidx-startup"
+43-->[androidx.emoji2:emoji2:1.2.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/343ab86ff5f5bda90d2f61290fe5dc34/transformed/emoji2-1.2.0/AndroidManifest.xml:26:13-68
+44            android:exported="false" >
+44-->[androidx.emoji2:emoji2:1.2.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/343ab86ff5f5bda90d2f61290fe5dc34/transformed/emoji2-1.2.0/AndroidManifest.xml:27:13-37
+45            <meta-data
+45-->[androidx.emoji2:emoji2:1.2.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/343ab86ff5f5bda90d2f61290fe5dc34/transformed/emoji2-1.2.0/AndroidManifest.xml:29:13-31:52
+46                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+46-->[androidx.emoji2:emoji2:1.2.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/343ab86ff5f5bda90d2f61290fe5dc34/transformed/emoji2-1.2.0/AndroidManifest.xml:30:17-75
+47                android:value="androidx.startup" />
+47-->[androidx.emoji2:emoji2:1.2.0] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/343ab86ff5f5bda90d2f61290fe5dc34/transformed/emoji2-1.2.0/AndroidManifest.xml:31:17-49
+48            <meta-data
+48-->[androidx.lifecycle:lifecycle-process:2.4.1] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/bcbc946f80de70752af565ab0ed622c4/transformed/lifecycle-process-2.4.1/AndroidManifest.xml:31:13-33:52
+49                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+49-->[androidx.lifecycle:lifecycle-process:2.4.1] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/bcbc946f80de70752af565ab0ed622c4/transformed/lifecycle-process-2.4.1/AndroidManifest.xml:32:17-78
+50                android:value="androidx.startup" />
+50-->[androidx.lifecycle:lifecycle-process:2.4.1] /data/data/com.termux/files/home/.gradle/caches/9.3.1/transforms/bcbc946f80de70752af565ab0ed622c4/transformed/lifecycle-process-2.4.1/AndroidManifest.xml:33:17-49
+51        </provider>
+52    </application>
+53
+54</manifest>

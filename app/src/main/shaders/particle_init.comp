@@ -1,0 +1,150 @@
+#version 450
+
+// Compute shader to initialize particles
+// Equivalent to RenderScript's initParticles() function
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+// Push constants for initialization parameters
+layout(push_constant) uniform PushConstants {
+    float width;
+    float height;
+    uint numParticles;
+    uint randomSeed;
+    float slowHue;
+    float slowSaturation;
+    float slowValue;
+    float fastHue;
+    float fastSaturation;
+    float fastValue;
+    int hueDirection;
+} pc;
+
+// Storage buffers
+layout(std430, binding = 0) buffer PositionBuffer {
+    vec2 position[];
+};
+
+layout(std430, binding = 1) buffer VelocityBuffer {
+    vec2 velocity[];
+};
+
+layout(std430, binding = 2) buffer ColorBuffer {
+    vec4 color[];
+};
+
+// Simple hash function for pseudo-random numbers
+uint hash(uint x) {
+    x += (x << 10u);
+    x ^= (x >> 6u);
+    x += (x << 3u);
+    x ^= (x >> 11u);
+    x += (x << 15u);
+    return x;
+}
+
+// Generate random float in [0, 1) from seed
+float randomFloat(inout uint seed) {
+    seed = hash(seed);
+    return float(seed) / 4294967296.0;
+}
+
+// HSV to RGBA conversion
+vec4 hsv2rgba(float h, float s, float v) {
+    float h6 = 6.0 * h;
+    float r, g, b;
+    
+    if (h6 < 1.0) {
+        r = 0.0;
+        g = 1.0 - h6;
+        b = 1.0;
+    } else if (h6 < 2.0) {
+        r = h6 - 1.0;
+        g = 0.0;
+        b = 1.0;
+    } else if (h6 < 3.0) {
+        r = 1.0;
+        g = 0.0;
+        b = 3.0 - h6;
+    } else if (h6 < 4.0) {
+        r = 1.0;
+        g = h6 - 3.0;
+        b = 0.0;
+    } else if (h6 < 5.0) {
+        r = 5.0 - h6;
+        g = 1.0;
+        b = 0.0;
+    } else {
+        r = 0.0;
+        g = 1.0;
+        b = h6 - 5.0;
+    }
+    
+    float coef = v * s;
+    return vec4(
+        v - coef * r,
+        v - coef * g,
+        v - coef * b,
+        1.0
+    );
+}
+
+float getHue(float coef) {
+    float sh = pc.slowHue;
+    float fh = pc.fastHue;
+    
+    if (sh < fh && pc.hueDirection == 0) {
+        sh += 1.0;
+    } else if (sh > fh && pc.hueDirection == 1) {
+        fh += 1.0;
+    }
+    
+    float hue = (1.0 - coef) * sh + coef * fh;
+    if (hue >= 1.0) {
+        hue -= 1.0;
+    }
+    return hue;
+}
+
+float getSaturation(float coef) {
+    return (1.0 - coef) * pc.slowSaturation + coef * pc.fastSaturation;
+}
+
+float getValue(float coef) {
+    return (1.0 - coef) * pc.slowValue + coef * pc.fastValue;
+}
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    
+    if (index >= pc.numParticles) {
+        return;
+    }
+    
+    // Initialize random seed for this particle
+    uint seed = pc.randomSeed + index * 1000u;
+    
+    // Calculate radius of initialization disk
+    float radius = sqrt(pc.width * pc.width + pc.height * pc.height) / 2.0;
+    
+    // Uniform distribution over a disk
+    float r = radius * sqrt(randomFloat(seed));
+    float theta = randomFloat(seed) * 6.28318530718; // 2*PI
+    
+    // Set position
+    position[index] = vec2(
+        pc.width / 2.0 + r * cos(theta),
+        pc.height / 2.0 + r * sin(theta)
+    );
+    
+    // Initialize velocity to zero
+    velocity[index] = vec2(0.0, 0.0);
+    
+    // Set initial color (speed = 0, so use slow color)
+    float speedCoef = 0.0;
+    color[index] = hsv2rgba(
+        getHue(speedCoef),
+        getSaturation(speedCoef),
+        getValue(speedCoef)
+    );
+}
