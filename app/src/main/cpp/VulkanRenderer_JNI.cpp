@@ -134,7 +134,7 @@ Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeSetParameters(
     params.bgColor = (uint32_t)bgColor;
     
     // Set parameters
-    engine->setParameters(params);
+    engine->setParameters(params.slowH, params.slowS, params.slowV, params.fastH, params.fastS, params.fastV, params.hueDir, params.attract, params.drag, params.width, params.height, params.numPart, params.numTouch, params.partSize, params.bgColor);
     
     LOGI("Parameters set: %d particles, %d touch points, attraction=%.1f, drag=%.3f",
          numPart, numTouch, attract, drag);
