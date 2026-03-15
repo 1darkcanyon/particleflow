@@ -6,8 +6,10 @@
 #include <android/asset_manager.h>
 #include <vector>
 #include <string>
-// glm replaced with simple structs
-struct vec2 { float x, y; };
+#include <array>
+
+struct Vec2 { float x = 0.0f; float y = 0.0f; };
+struct Vec4 { float r = 0.0f; float g = 0.0f; float b = 0.0f; float a = 1.0f; };
 
 struct ParticleParams {
     float slowH, slowS, slowV;
@@ -67,14 +69,14 @@ private:
     VkSurfaceKHR             surface_          = VK_NULL_HANDLE;
     VkSwapchainKHR           swapchain_        = VK_NULL_HANDLE;
     VkRenderPass             renderPass_       = VK_NULL_HANDLE;
-    VkPipeline               computePipeline_  = VK_NULL_HANDLE;
+    VkPipeline               computePipeline_     = VK_NULL_HANDLE;
     VkPipeline               computePipelineInit_ = VK_NULL_HANDLE;
-    VkPipeline               graphicsPipeline_ = VK_NULL_HANDLE;
-    VkPipelineLayout         computePipelineLayout_  = VK_NULL_HANDLE;
-    VkPipelineLayout         graphicsPipelineLayout_ = VK_NULL_HANDLE;
+    VkPipeline               graphicsPipeline_    = VK_NULL_HANDLE;
+    VkPipelineLayout         computePipelineLayout_      = VK_NULL_HANDLE;
+    VkPipelineLayout         graphicsPipelineLayout_     = VK_NULL_HANDLE;
     VkDescriptorSetLayout    computeDescriptorSetLayout_ = VK_NULL_HANDLE;
-    VkDescriptorPool         computeDescriptorPool_  = VK_NULL_HANDLE;
-    VkDescriptorSet          computeDescriptorSet_   = VK_NULL_HANDLE;
+    VkDescriptorPool         computeDescriptorPool_      = VK_NULL_HANDLE;
+    VkDescriptorSet          computeDescriptorSet_       = VK_NULL_HANDLE;
     VkCommandPool            commandPool_      = VK_NULL_HANDLE;
     VkBuffer                 positionBuffer_   = VK_NULL_HANDLE;
     VkDeviceMemory           positionMemory_   = VK_NULL_HANDLE;
@@ -86,14 +88,14 @@ private:
     VkDeviceMemory           touchMemory_      = VK_NULL_HANDLE;
     VkBuffer                 touchStagingBuffer_ = VK_NULL_HANDLE;
     VkDeviceMemory           touchStagingMemory_ = VK_NULL_HANDLE;
-    float*               touchMapped_      = nullptr;
+    Vec2*                    touchMapped_      = nullptr;
     VkSemaphore              imageAvailableSemaphore_ = VK_NULL_HANDLE;
     VkSemaphore              renderFinishedSemaphore_ = VK_NULL_HANDLE;
     VkFence                  inFlightFence_    = VK_NULL_HANDLE;
 
-    std::vector<VkImage>       swapchainImages_;
-    std::vector<VkImageView>   swapchainImageViews_;
-    std::vector<VkFramebuffer> framebuffers_;
+    std::vector<VkImage>         swapchainImages_;
+    std::vector<VkImageView>     swapchainImageViews_;
+    std::vector<VkFramebuffer>   framebuffers_;
     std::vector<VkCommandBuffer> graphicsCommandBuffers_;
     VkFormat    swapchainFormat_;
     VkExtent2D  swapchainExtent_;
@@ -108,8 +110,8 @@ private:
     int         particleSize_   = 1;
     uint32_t    frameSeed_      = 0;
 
-    ParticleParams params_;
-    std::vector<std::array<float,2>> touchPositions_;
+    ParticleParams         params_;
+    std::vector<Vec2>      touchPositions_;
 
     void createInstance();
     void createSurface(ANativeWindow* window);
