@@ -117,20 +117,20 @@ Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeSetParameters(
     
     // Build parameter structure
     ParticleParams params;
-    params.slowHue = slowH;
-    params.slowSaturation = slowS;
-    params.slowValue = slowV;
-    params.fastHue = fastH;
-    params.fastSaturation = fastS;
-    params.fastValue = fastV;
-    params.hueDirection = hueDir;
-    params.f01AttractionCoef = attract;
-    params.f01DragCoef = drag;
+    params.slowH = slowH;
+    params.slowS = slowS;
+    params.slowV = slowV;
+    params.fastH = fastH;
+    params.fastS = fastS;
+    params.fastV = fastV;
+    params.hueDir = hueDir;
+    params.attract = attract;
+    params.drag = drag;
     params.width = w;
     params.height = h;
-    params.numParticles = (uint32_t)numPart;
-    params.numTouchPoints = (uint32_t)numTouch;
-    params.particleSize = (uint32_t)partSize;
+    params.numPart = (uint32_t)numPart;
+    params.numTouch = (uint32_t)numTouch;
+    params.partSize = (uint32_t)partSize;
     params.bgColor = (uint32_t)bgColor;
     
     // Set parameters
