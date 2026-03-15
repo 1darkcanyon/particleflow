@@ -1,155 +1,140 @@
 #ifndef VULKAN_PARTICLE_ENGINE_H
 #define VULKAN_PARTICLE_ENGINE_H
 
-#include "VulkanHelpers.h"
+#include <vulkan/vulkan.h>
 #include <android/native_window.h>
 #include <android/asset_manager.h>
 #include <vector>
+#include <string>
+#include <glm/glm.hpp>
 
-// Parameters matching RenderScript version
 struct ParticleParams {
-    float slowHue;
-    float slowSaturation;
-    float slowValue;
-    float fastHue;
-    float fastSaturation;
-    float fastValue;
-    int hueDirection;
-    float f01AttractionCoef;
-    float f01DragCoef;
-    float width;
-    float height;
+    float slowH, slowS, slowV;
+    float fastH, fastS, fastV;
+    int hueDir;
+    float attract;
+    float drag;
+    float width, height;
+    int numPart, numTouch, partSize;
+    int bgColor;
+};
+
+struct ComputePushConstants {
     uint32_t numParticles;
-    uint32_t numTouchPoints;
-    uint32_t particleSize;
-    uint32_t bgColor;
+    uint32_t numTouch;
+    float attract;
+    float drag;
+    float width, height;
+    float slowH, slowS, slowV;
+    float fastH, fastS, fastV;
+    int hueDir;
+    uint32_t frameSeed;
+};
+
+struct GraphicsPushConstants {
+    float width, height, pointSize;
 };
 
 class VulkanParticleEngine {
 public:
     VulkanParticleEngine();
     ~VulkanParticleEngine();
-    
-    // Initialize Vulkan with surface
+
     bool initialize(ANativeWindow* window);
-    void setAssetManager(AAssetManager* mgr) { assetManager = mgr; }
-    
-    // Cleanup
-    void cleanup();
-    
-    // Set parameters
-    void setParameters(const ParticleParams& params);
-    
-    // Initialize particles (equivalent to initParticles())
+    void setAssetManager(AAssetManager* mgr) { assetManager_ = mgr; }
+    void setParameters(float slowH, float slowS, float slowV,
+                       float fastH, float fastS, float fastV,
+                       int hueDir, float attract, float drag,
+                       float w, float h, int numPart, int numTouch,
+                       int partSize, int bgColor);
     void initParticles();
-    
-    // Update particles (equivalent to updateParticles())
+    void initTesla369Pattern();
     void updateParticles();
-    
-    // Set touch point position
-    void setTouch(uint32_t index, float x, float y);
-    
-    // Render frame
+    void setTouch(int index, float x, float y);
+    void resetAttractionPoints();
     void render();
-    
-    // Handle surface changes
     void onSurfaceChanged(int width, int height);
-    
+    void cleanup();
+
 private:
-    // Vulkan instance and device
-    VkInstance instance = VK_NULL_HANDLE;
-    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-    AAssetManager* assetManager = nullptr;
-    AAssetManager* assetManager = nullptr;
-    VkDevice device = VK_NULL_HANDLE;
-    VkQueue graphicsQueue = VK_NULL_HANDLE;
-    VkQueue computeQueue = VK_NULL_HANDLE;
-    VkQueue presentQueue = VK_NULL_HANDLE;
-    
-    // Surface and swapchain
-    VkSurfaceKHR surface = VK_NULL_HANDLE;
-    VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-    std::vector<VkImage> swapchainImages;
-    std::vector<VkImageView> swapchainImageViews;
-    std::vector<VkFramebuffer> swapchainFramebuffers;
-    VkFormat swapchainImageFormat;
-    VkExtent2D swapchainExtent;
-    
-    // Render pass
-    VkRenderPass renderPass = VK_NULL_HANDLE;
-    
-    // Command pools and buffers
-    VkCommandPool computeCommandPool = VK_NULL_HANDLE;
-    VkCommandPool graphicsCommandPool = VK_NULL_HANDLE;
-    std::vector<VkCommandBuffer> commandBuffers;
-    
-    // Compute resources
-    VkDescriptorSetLayout computeDescriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool computeDescriptorPool = VK_NULL_HANDLE;
-    VkDescriptorSet computeInitDescriptorSet = VK_NULL_HANDLE;
-    VkDescriptorSet computeUpdateDescriptorSet = VK_NULL_HANDLE;
-    VkPipelineLayout computePipelineLayout = VK_NULL_HANDLE;
-    VkPipeline initPipeline = VK_NULL_HANDLE;
-    VkPipeline updatePipeline = VK_NULL_HANDLE;
-    
-    // Graphics resources
-    VkDescriptorSetLayout graphicsDescriptorSetLayout = VK_NULL_HANDLE;
-    VkPipelineLayout graphicsPipelineLayout = VK_NULL_HANDLE;
-    VkPipeline graphicsPipeline = VK_NULL_HANDLE;
-    
-    // Particle buffers
-    VkBuffer touchBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory touchBufferMemory = VK_NULL_HANDLE;
-    VkBuffer positionBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory positionBufferMemory = VK_NULL_HANDLE;
-    VkBuffer velocityBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory velocityBufferMemory = VK_NULL_HANDLE;
-    VkBuffer colorBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory colorBufferMemory = VK_NULL_HANDLE;
-    
-    // Staging buffers for touch updates
-    VkBuffer touchStagingBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory touchStagingMemory = VK_NULL_HANDLE;
-    float* touchMapped = nullptr;
-    
-    // Synchronization
-    std::vector<VkSemaphore> imageAvailableSemaphores;
-    std::vector<VkSemaphore> renderFinishedSemaphores;
-    std::vector<VkFence> inFlightFences;
-    uint32_t currentFrame = 0;
-    static const int MAX_FRAMES_IN_FLIGHT = 2;
-    
-    // Parameters
-    ParticleParams params;
-    uint32_t randomSeed;
-    
-    // Initialization helpers
-    bool createInstance();
-    bool pickPhysicalDevice();
-    bool createLogicalDevice();
-    bool createSurface(ANativeWindow* window);
-    bool createSwapchain();
-    bool createImageViews();
-    bool createRenderPass();
-    bool createFramebuffers();
-    bool createCommandPools();
-    bool createBuffers();
-    bool createComputeDescriptorSetLayout();
-    bool createComputeDescriptorPool();
-    bool createComputeDescriptorSets();
-    bool createComputePipelines();
-    bool createGraphicsPipeline();
-    bool createCommandBuffers();
-    void createOrthoMatrix(float* matrix, float left, float right, float bottom, float top, float near, float far);
-    bool createSyncObjects();
-    
-    // Shader loading
-    std::vector<uint32_t> loadShader(const char* name);
-    
-    // Helper methods
-    void updateTouchBuffer();
+    AAssetManager*           assetManager_     = nullptr;
+    VkInstance               instance_         = VK_NULL_HANDLE;
+    VkPhysicalDevice         physicalDevice_   = VK_NULL_HANDLE;
+    VkDevice                 device_           = VK_NULL_HANDLE;
+    VkQueue                  graphicsQueue_    = VK_NULL_HANDLE;
+    VkQueue                  computeQueue_     = VK_NULL_HANDLE;
+    VkSurfaceKHR             surface_          = VK_NULL_HANDLE;
+    VkSwapchainKHR           swapchain_        = VK_NULL_HANDLE;
+    VkRenderPass             renderPass_       = VK_NULL_HANDLE;
+    VkPipeline               computePipeline_  = VK_NULL_HANDLE;
+    VkPipeline               computePipelineInit_ = VK_NULL_HANDLE;
+    VkPipeline               graphicsPipeline_ = VK_NULL_HANDLE;
+    VkPipelineLayout         computePipelineLayout_  = VK_NULL_HANDLE;
+    VkPipelineLayout         graphicsPipelineLayout_ = VK_NULL_HANDLE;
+    VkDescriptorSetLayout    computeDescriptorSetLayout_ = VK_NULL_HANDLE;
+    VkDescriptorPool         computeDescriptorPool_  = VK_NULL_HANDLE;
+    VkDescriptorSet          computeDescriptorSet_   = VK_NULL_HANDLE;
+    VkCommandPool            commandPool_      = VK_NULL_HANDLE;
+    VkBuffer                 positionBuffer_   = VK_NULL_HANDLE;
+    VkDeviceMemory           positionMemory_   = VK_NULL_HANDLE;
+    VkBuffer                 velocityBuffer_   = VK_NULL_HANDLE;
+    VkDeviceMemory           velocityMemory_   = VK_NULL_HANDLE;
+    VkBuffer                 colorBuffer_      = VK_NULL_HANDLE;
+    VkDeviceMemory           colorMemory_      = VK_NULL_HANDLE;
+    VkBuffer                 touchBuffer_      = VK_NULL_HANDLE;
+    VkDeviceMemory           touchMemory_      = VK_NULL_HANDLE;
+    VkBuffer                 touchStagingBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory           touchStagingMemory_ = VK_NULL_HANDLE;
+    glm::vec2*               touchMapped_      = nullptr;
+    VkSemaphore              imageAvailableSemaphore_ = VK_NULL_HANDLE;
+    VkSemaphore              renderFinishedSemaphore_ = VK_NULL_HANDLE;
+    VkFence                  inFlightFence_    = VK_NULL_HANDLE;
+
+    std::vector<VkImage>       swapchainImages_;
+    std::vector<VkImageView>   swapchainImageViews_;
+    std::vector<VkFramebuffer> framebuffers_;
+    std::vector<VkCommandBuffer> graphicsCommandBuffers_;
+    VkFormat    swapchainFormat_;
+    VkExtent2D  swapchainExtent_;
+
+    uint32_t    graphicsFamily_ = 0;
+    uint32_t    computeFamily_  = 0;
+    bool        initialized_    = false;
+    uint32_t    width_          = 0;
+    uint32_t    height_         = 0;
+    int         numParticles_   = 50000;
+    int         numTouchPoints_ = 5;
+    int         particleSize_   = 1;
+    uint32_t    frameSeed_      = 0;
+
+    ParticleParams params_;
+    std::vector<glm::vec2> touchPositions_;
+
+    void createInstance();
+    void createSurface(ANativeWindow* window);
+    void pickPhysicalDevice();
+    void createLogicalDevice();
+    void createSwapchain();
     void recreateSwapchain();
     void cleanupSwapchain();
+    void createRenderPass();
+    void createFramebuffers();
+    void createParticleBuffers();
+    void createTouchBuffers();
+    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+                      VkMemoryPropertyFlags props,
+                      VkBuffer& buffer, VkDeviceMemory& memory);
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags props);
+    void createComputeDescriptors();
+    void createComputePipelines();
+    void createGraphicsPipeline();
+    void createCommandPool();
+    void createCommandBuffers();
+    void createSyncObjects();
+    void updateTouchBuffer();
+    VkShaderModule loadShader(const std::string& path);
+    VkCommandBuffer beginSingleTimeCommands();
+    void endSingleTimeCommands(VkCommandBuffer cmd);
 };
 
-#endif // VULKAN_PARTICLE_ENGINE_H
+#endif
