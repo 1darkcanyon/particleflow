@@ -6,7 +6,8 @@
 #include <android/asset_manager.h>
 #include <vector>
 #include <string>
-#include <glm/glm.hpp>
+// glm replaced with simple structs
+struct vec2 { float x, y; };
 
 struct ParticleParams {
     float slowH, slowS, slowV;
@@ -85,7 +86,7 @@ private:
     VkDeviceMemory           touchMemory_      = VK_NULL_HANDLE;
     VkBuffer                 touchStagingBuffer_ = VK_NULL_HANDLE;
     VkDeviceMemory           touchStagingMemory_ = VK_NULL_HANDLE;
-    glm::vec2*               touchMapped_      = nullptr;
+    float*               touchMapped_      = nullptr;
     VkSemaphore              imageAvailableSemaphore_ = VK_NULL_HANDLE;
     VkSemaphore              renderFinishedSemaphore_ = VK_NULL_HANDLE;
     VkFence                  inFlightFence_    = VK_NULL_HANDLE;
@@ -108,7 +109,7 @@ private:
     uint32_t    frameSeed_      = 0;
 
     ParticleParams params_;
-    std::vector<glm::vec2> touchPositions_;
+    std::vector<std::array<float,2>> touchPositions_;
 
     void createInstance();
     void createSurface(ANativeWindow* window);

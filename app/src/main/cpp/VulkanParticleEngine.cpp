@@ -263,12 +263,12 @@ void VulkanParticleEngine::resetAttractionPoints() {
 void VulkanParticleEngine::updateTouchBuffer() {
     if (!touchMapped_) return;
     memcpy(touchMapped_, touchPositions_.data(),
-           sizeof(glm::vec2) * touchPositions_.size());
+           sizeof(vec2) * touchPositions_.size());
 
     // Copy staging → device touch buffer
     VkCommandBuffer cmd = beginSingleTimeCommands();
     VkBufferCopy copy{};
-    copy.size = sizeof(glm::vec2) * MAX_TOUCH_POINTS;
+    copy.size = sizeof(vec2) * MAX_TOUCH_POINTS;
     vkCmdCopyBuffer(cmd, touchStagingBuffer_, touchBuffer_, 1, &copy);
     endSingleTimeCommands(cmd);
 }
@@ -704,8 +704,8 @@ void VulkanParticleEngine::createFramebuffers() {
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::createParticleBuffers() {
-    VkDeviceSize posSize   = sizeof(glm::vec2) * numParticles_;
-    VkDeviceSize colorSize = sizeof(glm::vec4) * numParticles_;
+    VkDeviceSize posSize   = sizeof(vec2) * numParticles_;
+    VkDeviceSize colorSize = sizeof(struct { float r,g,b,a; }) * numParticles_;
 
     createBuffer(posSize,
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -724,7 +724,7 @@ void VulkanParticleEngine::createParticleBuffers() {
 }
 
 void VulkanParticleEngine::createTouchBuffers() {
-    VkDeviceSize size = sizeof(glm::vec2) * MAX_TOUCH_POINTS;
+    VkDeviceSize size = sizeof(vec2) * MAX_TOUCH_POINTS;
 
     // Staging buffer — host visible, permanently mapped
     createBuffer(size,
@@ -836,10 +836,10 @@ void VulkanParticleEngine::createComputeDescriptors() {
     // Write buffer descriptors
     VkBuffer buffers[] = {positionBuffer_, velocityBuffer_, colorBuffer_, touchBuffer_};
     VkDeviceSize sizes[] = {
-        sizeof(glm::vec2) * numParticles_,
-        sizeof(glm::vec2) * numParticles_,
-        sizeof(glm::vec4) * numParticles_,
-        sizeof(glm::vec2) * MAX_TOUCH_POINTS
+        sizeof(vec2) * numParticles_,
+        sizeof(vec2) * numParticles_,
+        sizeof(struct { float r,g,b,a; }) * numParticles_,
+        sizeof(vec2) * MAX_TOUCH_POINTS
     };
 
     std::vector<VkWriteDescriptorSet> writes(4);
@@ -942,10 +942,10 @@ void VulkanParticleEngine::createGraphicsPipeline() {
     // Vertex input: binding 0 = position (vec2), binding 1 = color (vec4)
     VkVertexInputBindingDescription bindings[2]{};
     bindings[0].binding   = 0;
-    bindings[0].stride    = sizeof(glm::vec2);
+    bindings[0].stride    = sizeof(vec2);
     bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
     bindings[1].binding   = 1;
-    bindings[1].stride    = sizeof(glm::vec4);
+    bindings[1].stride    = sizeof(struct { float r,g,b,a; });
     bindings[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
     VkVertexInputAttributeDescription attrs[2]{};
