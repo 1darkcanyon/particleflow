@@ -237,22 +237,6 @@ public class SettingsView extends Dialog {
 
         root.addView(makeDivider(ctx));
 
-        // ── TESLA 369 BUTTON ──────────────────────────────────
-        Button teslaBtn = makeButton(ctx, "⚡ Tesla 369 Pattern",
-            Color.parseColor("#f59e0b"));
-        teslaBtn.setOnClickListener(v -> {
-            dismiss();
-            if (true) {
-                renderer.setNumParticles(432000); renderer.setAttractionPct(28); renderer.setDragPct(0); renderer.savePreferences(); renderer.applyParameters(); renderer.initTesla369();
-            }
-        });
-        root.addView(teslaBtn);
-
-        root.addView(makeLabel(ctx,
-            "432,000 particles · 9 sacred attraction points · Attraction 28 · Drag 0"));
-
-        root.addView(makeDivider(ctx));
-
         // ── BUTTONS ROW ───────────────────────────────────────
         LinearLayout btnRow = new LinearLayout(ctx);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
