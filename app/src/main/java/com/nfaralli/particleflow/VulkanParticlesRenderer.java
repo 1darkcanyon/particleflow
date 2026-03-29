@@ -40,7 +40,7 @@ public class VulkanParticlesRenderer {
     // ── DEFAULTS (match original app exactly) ─────────────────
     public static final int   DEFAULT_NUM_PARTICLES = 50000;
     public static final int   DEFAULT_PARTICLE_SIZE = 1;
-    public static final int   DEFAULT_NUM_TOUCH      = 5;
+    public static final int   DEFAULT_NUM_TOUCH      = 2;
     public static final int   DEFAULT_BG_R           = 0;
     public static final int   DEFAULT_BG_G           = 0;
     public static final int   DEFAULT_BG_B           = 0;
@@ -214,10 +214,9 @@ public class VulkanParticlesRenderer {
         float[] slowHSV = rgbToHSV(slowR, slowG, slowB);
         float[] fastHSV = rgbToHSV(fastR, fastG, fastB);
 
-        // Convert drag: user value 0-999 → internal 0.0-1.0
-        // Original: user 0-100 where 4 = 0.96
-        // New scale: 0-999 where (dragPct / 1000) = drag percentage
-        float dragCoef = 1.0f - (dragPct / 1000.0f);
+        // Convert drag: matches original RenderScript — stored as integer 0-100,
+        // converted as 1.0 - (dragPct / 100.0). Default 4 → 0.96 drag coef.
+        float dragCoef = 1.0f - (dragPct / 100.0f);
 
         // Attraction: use directly (0-500 scale)
         float attractCoef = attractionPct;

@@ -5,19 +5,23 @@
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-// Push constants for initialization parameters
+// Push constants — layout MUST match ComputePushConstants in VulkanParticleEngine.h exactly.
+// Fields unused by this shader are declared to preserve offsets.
 layout(push_constant) uniform PushConstants {
+    uint  numParticles;
+    uint  numTouchPoints;     // unused
+    float f01AttractionCoef;  // unused
+    float f01DragCoef;        // unused
     float width;
     float height;
-    uint numParticles;
-    uint randomSeed;
     float slowHue;
     float slowSaturation;
     float slowValue;
     float fastHue;
     float fastSaturation;
     float fastValue;
-    int hueDirection;
+    int   hueDirection;
+    uint  randomSeed;
 } pc;
 
 // Storage buffers
