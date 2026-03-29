@@ -5,39 +5,42 @@
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-// Push constants for physics parameters
+// Push constants — layout MUST match ComputePushConstants in VulkanParticleEngine.h exactly:
+//   uint32_t numParticles, numTouch; float attract, drag, width, height;
+//   float slowH,S,V; float fastH,S,V; int hueDir; uint32_t frameSeed;
 layout(push_constant) uniform PushConstants {
+    uint  numParticles;
+    uint  numTouchPoints;
+    float f01AttractionCoef;
+    float f01DragCoef;
+    float width;
+    float height;
     float slowHue;
     float slowSaturation;
     float slowValue;
     float fastHue;
     float fastSaturation;
     float fastValue;
-    int hueDirection;
-    float f01AttractionCoef;
-    float f01DragCoef;
-    float width;
-    float height;
-    uint numParticles;
-    uint numTouchPoints;
-    uint randomSeed;
+    int   hueDirection;
+    uint  randomSeed;
 } pc;
 
-// Storage buffers
-layout(std430, binding = 0) buffer TouchBuffer {
-    vec2 gTouch[];
-};
-
-layout(std430, binding = 1) buffer PositionBuffer {
+// Buffer bindings — MUST match createComputeDescriptors() descriptor order:
+//   buffers[] = {positionBuffer_, velocityBuffer_, colorBuffer_, touchBuffer_}
+layout(std430, binding = 0) buffer PositionBuffer {
     vec2 position[];
 };
 
-layout(std430, binding = 2) buffer VelocityBuffer {
+layout(std430, binding = 1) buffer VelocityBuffer {
     vec2 velocity[];
 };
 
-layout(std430, binding = 3) buffer ColorBuffer {
+layout(std430, binding = 2) buffer ColorBuffer {
     vec4 color[];
+};
+
+layout(std430, binding = 3) buffer TouchBuffer {
+    vec2 gTouch[];
 };
 
 // Random number generation for collision avoidance
