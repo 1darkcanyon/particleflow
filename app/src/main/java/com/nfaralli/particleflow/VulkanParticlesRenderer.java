@@ -151,7 +151,7 @@ public class VulkanParticlesRenderer {
         if (index < 0 || index >= numTouchPoints) return;
         touchX[index]       = x;
         touchY[index]       = y;
-        touchCounter[index] = 3; // Stay alive for 3 frames after lift
+        touchCounter[index] = 180; // Stay alive for 180 frames (~3 seconds at 60fps) after lift
         nativeSetTouch(nativeHandle, index, x, y);
     }
 
