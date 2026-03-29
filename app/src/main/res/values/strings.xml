@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ParticleFlow</string>
+    <string name="settings_title">Settings</string>
+    <string name="attraction_label">Attraction Force</string>
+    <string name="drag_label">Drag Coefficient</string>
+    <string name="hue_direction_label">Color Direction</string>
+    <string name="clockwise">Clockwise</string>
+    <string name="counterclockwise">Counter-Clockwise</string>
+    <string name="particle_count_label">Particles</string>
+    <string name="particle_size_label">Size</string>
+    <string name="bg_color_label">Background Color</string>
+    <string name="slow_color_label">Slow Color</string>
+    <string name="fast_color_label">Fast Color</string>
+    <string name="reset_button">Reset</string>
+    <string name="cancel_button">Cancel</string>
+    <string name="apply_button">Apply</string>
+    <string name="settings_button_desc">Open Settings</string>
+</resources>
