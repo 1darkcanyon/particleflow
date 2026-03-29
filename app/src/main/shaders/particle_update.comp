@@ -187,5 +187,8 @@ void main() {
     // Write back updated state
     position[index] = pt;
     velocity[index] = vel;
+    // Drag LAST - exact RenderScript order
+    vel *= pc.f01DragCoef;
+
     color[index] = col;
 }
