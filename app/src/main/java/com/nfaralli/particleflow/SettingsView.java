@@ -134,9 +134,9 @@ public class SettingsView extends Dialog {
         root.addView(makeLabel(ctx, "Background Color (R / G / B)"));
         LinearLayout bgRow = makeColorRow(ctx);
 
-        EditText etBgR = makeEditInt(ctx, bgR);
-        EditText etBgG = makeEditInt(ctx, bgG);
-        EditText etBgB = makeEditInt(ctx, bgB);
+        EditText etBgR = makeColorEditInt(ctx, bgR);
+        EditText etBgG = makeColorEditInt(ctx, bgG);
+        EditText etBgB = makeColorEditInt(ctx, bgB);
 
         etBgR.addTextChangedListener(new IntWatcher(0,255){ @Override void onValue(int v){bgR=v;} });
         etBgG.addTextChangedListener(new IntWatcher(0,255){ @Override void onValue(int v){bgG=v;} });
@@ -153,9 +153,9 @@ public class SettingsView extends Dialog {
         root.addView(makeLabel(ctx, "Slow Particle Color (R / G / B)"));
         LinearLayout slowRow = makeColorRow(ctx);
 
-        EditText etSlowR = makeEditInt(ctx, slowR);
-        EditText etSlowG = makeEditInt(ctx, slowG);
-        EditText etSlowB = makeEditInt(ctx, slowB);
+        EditText etSlowR = makeColorEditInt(ctx, slowR);
+        EditText etSlowG = makeColorEditInt(ctx, slowG);
+        EditText etSlowB = makeColorEditInt(ctx, slowB);
 
         etSlowR.addTextChangedListener(new IntWatcher(0,255){ @Override void onValue(int v){ slowR=v; updateGradient(); } });
         etSlowG.addTextChangedListener(new IntWatcher(0,255){ @Override void onValue(int v){ slowG=v; updateGradient(); } });
@@ -170,9 +170,9 @@ public class SettingsView extends Dialog {
         root.addView(makeLabel(ctx, "Fast Particle Color (R / G / B)"));
         LinearLayout fastRow = makeColorRow(ctx);
 
-        EditText etFastR = makeEditInt(ctx, fastR);
-        EditText etFastG = makeEditInt(ctx, fastG);
-        EditText etFastB = makeEditInt(ctx, fastB);
+        EditText etFastR = makeColorEditInt(ctx, fastR);
+        EditText etFastG = makeColorEditInt(ctx, fastG);
+        EditText etFastB = makeColorEditInt(ctx, fastB);
 
         etFastR.addTextChangedListener(new IntWatcher(0,255){ @Override void onValue(int v){ fastR=v; updateGradient(); } });
         etFastG.addTextChangedListener(new IntWatcher(0,255){ @Override void onValue(int v){ fastG=v; updateGradient(); } });
@@ -442,6 +442,17 @@ public class SettingsView extends Dialog {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT);
         p.bottomMargin = dp(4);
+        et.setLayoutParams(p);
+        return et;
+    }
+
+    /** EditText sized for 3-column color rows (equal weight, 4dp right gap). */
+    private EditText makeColorEditInt(Context ctx, int value) {
+        EditText et = makeEditInt(ctx, value);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        p.bottomMargin  = dp(4);
+        p.setMarginEnd(dp(4));
         et.setLayoutParams(p);
         return et;
     }
