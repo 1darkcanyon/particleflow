@@ -19,6 +19,17 @@ jobs:
           sdkmanager "ndk;25.1.8937393"
           sdkmanager "cmake;3.22.1"
 
+      - name: Compile shaders
+        run: |
+          GLSLC=$ANDROID_HOME/ndk/25.1.8937393/shader-tools/linux-x86_64/glslc
+          SHADER_DIR=app/src/main/shaders
+          ASSET_DIR=app/src/main/assets/shaders
+          mkdir -p $ASSET_DIR
+          $GLSLC $SHADER_DIR/particle_init.comp    -o $ASSET_DIR/particle_init.spv
+          $GLSLC $SHADER_DIR/particle_update.comp  -o $ASSET_DIR/particle_update.spv
+          $GLSLC $SHADER_DIR/particle_render.vert  -o $ASSET_DIR/particle_render.vert.spv
+          $GLSLC $SHADER_DIR/particle_render.frag  -o $ASSET_DIR/particle_render.frag.spv
+
       - name: Build
         run: ./gradlew assembleDebug
 

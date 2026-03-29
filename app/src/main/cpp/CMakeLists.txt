@@ -58,9 +58,9 @@ if(GLSLC)
         if(SHADER_EXT STREQUAL ".comp")
             set(OUTPUT_NAME "${SHADER_NAME}.spv")
         elseif(SHADER_EXT STREQUAL ".vert")
-            set(OUTPUT_NAME "${SHADER_NAME}_vert.spv")
+            set(OUTPUT_NAME "${SHADER_NAME}.vert.spv")
         elseif(SHADER_EXT STREQUAL ".frag")
-            set(OUTPUT_NAME "${SHADER_NAME}_frag.spv")
+            set(OUTPUT_NAME "${SHADER_NAME}.frag.spv")
         endif()
         
         add_custom_command(

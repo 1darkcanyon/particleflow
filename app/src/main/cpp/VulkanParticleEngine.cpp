@@ -144,8 +144,10 @@ void VulkanParticleEngine::setParameters(
     params_.hueDir  = hueDir;
     params_.attract = attract;
     params_.drag    = drag;
-    params_.width   = w;
-    params_.height  = h;
+    // Only update dimensions if non-zero — preserve swapchain values when
+    // Java calls applyParameters() before surfaceChanged() has fired.
+    if ((uint32_t)w > 0) { params_.width  = w; width_  = (uint32_t)w; }
+    if ((uint32_t)h > 0) { params_.height = h; height_ = (uint32_t)h; }
     params_.numPart = numPart;
     params_.numTouch= numTouch;
     params_.partSize= partSize;
@@ -154,8 +156,6 @@ void VulkanParticleEngine::setParameters(
     numParticles_   = numPart;
     numTouchPoints_ = numTouch;
     particleSize_   = partSize;
-    width_          = (uint32_t)w;
-    height_         = (uint32_t)h;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -173,25 +173,22 @@ void VulkanParticleEngine::initParticles() {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
         computePipelineLayout_, 0, 1, &computeDescriptorSet_, 0, nullptr);
 
-    // Push constants for init
-    ComputePushConstants pc{};
-    pc.numParticles  = numParticles_;
-    pc.numTouch      = numTouchPoints_;
-    pc.attract       = params_.attract;
-    pc.drag          = params_.drag;
-    pc.width         = (float)width_;
-    pc.height        = (float)height_;
-    pc.slowH         = params_.slowH;
-    pc.slowS         = params_.slowS;
-    pc.slowV         = params_.slowV;
-    pc.fastH         = params_.fastH;
-    pc.fastS         = params_.fastS;
-    pc.fastV         = params_.fastV;
-    pc.hueDir        = params_.hueDir;
-    pc.frameSeed     = frameSeed_++;
+    // Push constants matching particle_init.comp layout exactly
+    InitPushConstants pc{};
+    pc.width        = (float)width_;
+    pc.height       = (float)height_;
+    pc.numParticles = numParticles_;
+    pc.randomSeed   = frameSeed_++;
+    pc.slowH        = params_.slowH;
+    pc.slowS        = params_.slowS;
+    pc.slowV        = params_.slowV;
+    pc.fastH        = params_.fastH;
+    pc.fastS        = params_.fastS;
+    pc.fastV        = params_.fastV;
+    pc.hueDir       = params_.hueDir;
 
     vkCmdPushConstants(cmd, computePipelineLayout_,
-        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pc);
+        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(InitPushConstants), &pc);
 
     uint32_t groupCount = (numParticles_ + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
     vkCmdDispatch(cmd, groupCount, 1, 1);
@@ -287,24 +284,25 @@ void VulkanParticleEngine::updateParticles() {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
         computePipelineLayout_, 0, 1, &computeDescriptorSet_, 0, nullptr);
 
-    ComputePushConstants pc{};
-    pc.numParticles  = numParticles_;
-    pc.numTouch      = numTouchPoints_;
-    pc.attract       = params_.attract;
-    pc.drag          = params_.drag;
-    pc.width         = (float)width_;
-    pc.height        = (float)height_;
-    pc.slowH         = params_.slowH;
-    pc.slowS         = params_.slowS;
-    pc.slowV         = params_.slowV;
-    pc.fastH         = params_.fastH;
-    pc.fastS         = params_.fastS;
-    pc.fastV         = params_.fastV;
-    pc.hueDir        = params_.hueDir;
-    pc.frameSeed     = frameSeed_++;
+    // Push constants matching particle_update.comp layout exactly
+    UpdatePushConstants pc{};
+    pc.slowH        = params_.slowH;
+    pc.slowS        = params_.slowS;
+    pc.slowV        = params_.slowV;
+    pc.fastH        = params_.fastH;
+    pc.fastS        = params_.fastS;
+    pc.fastV        = params_.fastV;
+    pc.hueDir       = params_.hueDir;
+    pc.attract      = params_.attract;
+    pc.drag         = params_.drag;
+    pc.width        = (float)width_;
+    pc.height       = (float)height_;
+    pc.numParticles = numParticles_;
+    pc.numTouch     = numTouchPoints_;
+    pc.randomSeed   = frameSeed_++;
 
     vkCmdPushConstants(cmd, computePipelineLayout_,
-        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pc);
+        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(UpdatePushConstants), &pc);
 
     // Memory barrier: ensure render finished before compute writes
     VkMemoryBarrier barrier{};
@@ -388,10 +386,16 @@ void VulkanParticleEngine::render() {
     vkCmdBindVertexBuffers(graphicsCommandBuffers_[imageIndex],
         0, 2, vertexBuffers, offsets);
 
-    // Push constants for vertex shader (screen size)
+    // Build orthographic MVP: maps pixel space [0,W]x[0,H] → NDC [-1,1]x[-1,1]
+    // Column-major mat4 as expected by GLSL
     GraphicsPushConstants gpc{};
-    gpc.width      = (float)width_;
-    gpc.height     = (float)height_;
+    float w = (float)width_;
+    float h = (float)height_;
+    if (w == 0.0f || h == 0.0f) { vkCmdEndRenderPass(graphicsCommandBuffers_[imageIndex]); vkEndCommandBuffer(graphicsCommandBuffers_[imageIndex]); return; }
+    gpc.mvp[0]=2.f/w; gpc.mvp[4]=0;      gpc.mvp[8]=0;  gpc.mvp[12]=-1.f;
+    gpc.mvp[1]=0;     gpc.mvp[5]=2.f/h;  gpc.mvp[9]=0;  gpc.mvp[13]=-1.f;
+    gpc.mvp[2]=0;     gpc.mvp[6]=0;      gpc.mvp[10]=1; gpc.mvp[14]=0.f;
+    gpc.mvp[3]=0;     gpc.mvp[7]=0;      gpc.mvp[11]=0; gpc.mvp[15]=1.f;
     gpc.pointSize  = (float)particleSize_;
 
     vkCmdPushConstants(graphicsCommandBuffers_[imageIndex],
@@ -833,13 +837,14 @@ void VulkanParticleEngine::createComputeDescriptors() {
     allocInfo.pSetLayouts        = &computeDescriptorSetLayout_;
     vkAllocateDescriptorSets(device_, &allocInfo, &computeDescriptorSet_);
 
-    // Write buffer descriptors
-    VkBuffer buffers[] = {positionBuffer_, velocityBuffer_, colorBuffer_, touchBuffer_};
+    // Write buffer descriptors — order must match shader binding indices:
+    // binding 0 = touch, 1 = position, 2 = velocity, 3 = color
+    VkBuffer buffers[] = {touchBuffer_, positionBuffer_, velocityBuffer_, colorBuffer_};
     VkDeviceSize sizes[] = {
+        sizeof(Vec2) * MAX_TOUCH_POINTS,
         sizeof(Vec2) * numParticles_,
         sizeof(Vec2) * numParticles_,
-        sizeof(Vec4) * numParticles_,
-        sizeof(Vec2) * MAX_TOUCH_POINTS
+        sizeof(Vec4) * numParticles_
     };
 
     std::vector<VkWriteDescriptorSet> writes(4);
@@ -889,10 +894,11 @@ VkShaderModule VulkanParticleEngine::loadShader(const std::string& path) {
 
 void VulkanParticleEngine::createComputePipelines() {
     // Pipeline layout with push constants
+    // Range must cover the larger of InitPushConstants and UpdatePushConstants
     VkPushConstantRange pushRange{};
     pushRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     pushRange.offset     = 0;
-    pushRange.size       = sizeof(ComputePushConstants);
+    pushRange.size       = sizeof(UpdatePushConstants);
 
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;

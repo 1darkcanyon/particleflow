@@ -22,20 +22,35 @@ struct ParticleParams {
     int bgColor;
 };
 
-struct ComputePushConstants {
+// Push constants for particle_init.comp
+// Layout must match the GLSL push_constant block exactly.
+struct InitPushConstants {
+    float    width;
+    float    height;
     uint32_t numParticles;
-    uint32_t numTouch;
-    float attract;
-    float drag;
-    float width, height;
-    float slowH, slowS, slowV;
-    float fastH, fastS, fastV;
-    int hueDir;
-    uint32_t frameSeed;
+    uint32_t randomSeed;
+    float    slowH, slowS, slowV;
+    float    fastH, fastS, fastV;
+    int      hueDir;
 };
 
+// Push constants for particle_update.comp
+struct UpdatePushConstants {
+    float    slowH, slowS, slowV;
+    float    fastH, fastS, fastV;
+    int      hueDir;
+    float    attract;
+    float    drag;
+    float    width, height;
+    uint32_t numParticles;
+    uint32_t numTouch;
+    uint32_t randomSeed;
+};
+
+// Push constants for particle_render.vert  (mat4 mvpMatrix + pointSize)
 struct GraphicsPushConstants {
-    float width, height, pointSize;
+    float mvp[16];
+    float pointSize;
 };
 
 class VulkanParticleEngine {

@@ -20,16 +20,17 @@ layout(push_constant) uniform PushConstants {
     int hueDirection;
 } pc;
 
-// Storage buffers
-layout(std430, binding = 0) buffer PositionBuffer {
+// Storage buffers — binding indices match the shared descriptor set layout:
+// binding 0 = touch (unused in init), 1 = position, 2 = velocity, 3 = color
+layout(std430, binding = 1) buffer PositionBuffer {
     vec2 position[];
 };
 
-layout(std430, binding = 1) buffer VelocityBuffer {
+layout(std430, binding = 2) buffer VelocityBuffer {
     vec2 velocity[];
 };
 
-layout(std430, binding = 2) buffer ColorBuffer {
+layout(std430, binding = 3) buffer ColorBuffer {
     vec4 color[];
 };
 
