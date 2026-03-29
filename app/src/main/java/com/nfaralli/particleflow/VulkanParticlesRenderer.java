@@ -88,6 +88,7 @@ public class VulkanParticlesRenderer {
     public VulkanParticlesRenderer(Context context) {
         this.context = context;
         nativeHandle = nativeCreate();
+        nativeSetAssetManager(nativeHandle, context.getAssets());
         loadPreferences();
         touchX       = new float[MAX_TOUCH_POINTS];
         touchY       = new float[MAX_TOUCH_POINTS];
@@ -395,4 +396,5 @@ public class VulkanParticlesRenderer {
     private native void    nativeOnSurfaceChanged(long handle, int width, int height);
     private native void    nativeResetAttractionPoints(long handle);
     private native void    nativeInitTesla369Pattern(long handle);
+    private native void    nativeSetAssetManager(long handle, android.content.res.AssetManager mgr);
 }

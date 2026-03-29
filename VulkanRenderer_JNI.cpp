@@ -6,6 +6,8 @@
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
 #include <android/log.h>
+#include <android/asset_manager.h>
+#include <android/asset_manager_jni.h>
 #include "VulkanParticleEngine.h"
 
 #define LOG_TAG "VulkanJNI"
@@ -271,6 +273,24 @@ Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeSyncTouch(
     // Touch buffer is automatically synced in updateParticles()
     // But you can add explicit sync if needed
     // engine->syncTouchBuffer();
+}
+
+/**
+ * Pass Android AssetManager to native engine so shaders can be loaded from assets
+ * Java: nativeSetAssetManager(long handle, AssetManager mgr)
+ * Must be called before nativeInitialize()
+ */
+JNIEXPORT void JNICALL
+Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeSetAssetManager(
+    JNIEnv* env, jobject obj, jlong handle, jobject assetManager) {
+
+    VulkanParticleEngine* engine = reinterpret_cast<VulkanParticleEngine*>(handle);
+    if (engine == nullptr) {
+        LOGE("Invalid engine handle in nativeSetAssetManager!");
+        return;
+    }
+    engine->setAssetManager(AAssetManager_fromJava(env, assetManager));
+    LOGI("AssetManager set");
 }
 
 /**
