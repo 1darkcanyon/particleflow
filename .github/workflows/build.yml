@@ -19,6 +19,17 @@ jobs:
           sdkmanager "ndk;25.1.8937393"
           sdkmanager "cmake;3.22.1"
 
+      - name: Compile shaders
+        run: |
+          sudo apt-get install -y glslang-tools
+          SHADER_DIR=app/src/main/shaders
+          OUT_DIR=app/src/main/assets/shaders
+          mkdir -p "$OUT_DIR"
+          glslangValidator -V "$SHADER_DIR/particle_init.comp"   -o "$OUT_DIR/particle_init.spv"
+          glslangValidator -V "$SHADER_DIR/particle_update.comp" -o "$OUT_DIR/particle_update.spv"
+          glslangValidator -V "$SHADER_DIR/particle_render.vert" -o "$OUT_DIR/particle_render.vert.spv"
+          glslangValidator -V "$SHADER_DIR/particle_render.frag" -o "$OUT_DIR/particle_render.frag.spv"
+
       - name: Build
         run: ./gradlew assembleDebug
 

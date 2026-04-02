@@ -34,8 +34,11 @@ struct ComputePushConstants {
     uint32_t frameSeed;
 };
 
+// Must match the compiled particle_render.vert.spv push constant block:
+//   layout(push_constant) uniform PushConstants { mat4 mvpMatrix; float pointSize; }
 struct GraphicsPushConstants {
-    float width, height, pointSize;
+    float mvpMatrix[16];  // column-major orthographic matrix (64 bytes, offset 0)
+    float pointSize;      // offset 64
 };
 
 class VulkanParticleEngine {
@@ -135,6 +138,7 @@ private:
     void createCommandBuffers();
     void createSyncObjects();
     void updateTouchBuffer();
+    void setDefaultAttractionPoints();
     VkShaderModule loadShader(const std::string& path);
     VkCommandBuffer beginSingleTimeCommands();
     void endSingleTimeCommands(VkCommandBuffer cmd);
