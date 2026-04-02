@@ -2,6 +2,7 @@ package com.nfaralli.particleflow;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.res.AssetManager;
 import android.graphics.Color;
 import android.util.Log;
 import android.view.Surface;
@@ -99,6 +100,7 @@ public class VulkanParticlesRenderer {
 
     public boolean initialize(Surface surface) {
         if (nativeHandle == 0) return false;
+        nativeSetAssetManager(nativeHandle, context.getAssets());
         boolean ok = nativeInitialize(nativeHandle, surface);
         if (ok) {
             applyParameters();
@@ -392,6 +394,7 @@ public class VulkanParticlesRenderer {
     private native void    nativeSetTouch(long handle, int index, float x, float y);
     private native void    nativeRender(long handle);
     private native void    nativeOnSurfaceChanged(long handle, int width, int height);
+    private native void    nativeSetAssetManager(long handle, AssetManager am);
     private native void    nativeResetAttractionPoints(long handle);
     private native void    nativeInitTesla369Pattern(long handle);
 }

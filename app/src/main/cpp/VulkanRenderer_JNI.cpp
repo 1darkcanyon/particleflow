@@ -5,6 +5,8 @@
 #include <jni.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
+#include <android/asset_manager.h>
+#include <android/asset_manager_jni.h>
 #include <android/log.h>
 #include "VulkanParticleEngine.h"
 
@@ -55,6 +57,25 @@ Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeDestroy(
         delete engine;
         LOGI("VulkanParticleEngine destroyed");
     }
+}
+
+/**
+ * Set the AAssetManager so loadShader() can open spv files from assets/
+ * Java: nativeSetAssetManager(long handle, AssetManager am)
+ * MUST be called before nativeInitialize().
+ */
+JNIEXPORT void JNICALL
+Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeSetAssetManager(
+    JNIEnv* env, jobject obj, jlong handle, jobject assetManagerObj) {
+
+    VulkanParticleEngine* engine = reinterpret_cast<VulkanParticleEngine*>(handle);
+    if (engine == nullptr) { LOGE("nativeSetAssetManager: invalid handle"); return; }
+
+    AAssetManager* am = AAssetManager_fromJava(env, assetManagerObj);
+    if (am == nullptr) { LOGE("nativeSetAssetManager: AAssetManager_fromJava returned null"); return; }
+
+    engine->setAssetManager(am);
+    LOGI("AssetManager set successfully");
 }
 
 /**
@@ -240,18 +261,8 @@ Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeInitTesla369Pattern
         return;
     }
     
-    LOGI("⚡ Initializing Tesla 369 Universe Pattern...");
-    
-    // Set 9 touch points in sacred geometry pattern
-    // 3 outer (triangle) + 6 inner (hexagon) = 9 total
-    
-    // Get surface dimensions from engine
-    // For now, assume centered pattern
-    // You'll want to add getters to VulkanParticleEngine for width/height
-    
-    // This is a placeholder - implement Tesla369 pattern in engine
-    LOGI("✨ Tesla 369 Pattern would be initialized here");
-    LOGI("   (Add initTesla369Pattern() method to VulkanParticleEngine)");
+    LOGI("Initializing Tesla 369 pattern");
+    engine->initTesla369Pattern();
 }
 
 /**
@@ -287,14 +298,8 @@ Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeResetAttractionPoin
         return;
     }
     
-    // Reset all touch points to disabled (-1, -1)
-    // You'll need to get numTouchPoints from engine
-    // For now, assume max of 16
-    for (uint32_t i = 0; i < 16; i++) {
-        engine->setTouch(i, -1.0f, -1.0f);
-    }
-    
-    LOGI("All attraction points reset");
+    engine->resetAttractionPoints();
+    LOGI("Attraction points reset to default circle");
 }
 
 } // extern "C"
