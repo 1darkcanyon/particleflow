@@ -11,6 +11,8 @@ import android.view.Surface;
  * Particle Flow — Vulkan Migration
  * NEXUS Engineering — Canyon (Kaneon)
  *
+ * Sacred geometry formation init - PR by Copilot April 2026
+ *
  * Replaces original ParticlesRenderer.java
  * Connects Java UI layer to C++ Vulkan engine via JNI
  * Zero CPU readback — all particle data stays on GPU
@@ -101,8 +103,15 @@ public class VulkanParticlesRenderer {
         if (nativeHandle == 0) return false;
         boolean ok = nativeInitialize(nativeHandle, surface);
         if (ok) {
-            applyParameters();
-            nativeInitParticles(nativeHandle);
+            // Note: width/height may still be 0 here (set later by onSurfaceChanged).
+            // applyParameters() + nativeInitParticles() are deferred to the first
+            // onSurfaceChanged() call so the Flower of Life geometry is computed
+            // against real screen dimensions.  If dimensions are already available
+            // (e.g. surface re-created), initialize immediately.
+            if (width > 0 && height > 0) {
+                applyParameters();
+                nativeInitParticles(nativeHandle);
+            }
             initialized = true;
             Log.i(TAG, "Renderer initialized: " + numParticles + " particles");
         }
@@ -122,6 +131,10 @@ public class VulkanParticlesRenderer {
         height = h;
         if (nativeHandle != 0) {
             nativeOnSurfaceChanged(nativeHandle, w, h);
+            // Propagate the new dimensions and reinitialize particles so the
+            // Flower of Life formation is always centered on the actual screen.
+            applyParameters();
+            nativeInitParticles(nativeHandle);
         }
     }
 
