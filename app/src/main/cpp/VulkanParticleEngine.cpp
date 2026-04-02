@@ -111,6 +111,7 @@ bool VulkanParticleEngine::initialize(ANativeWindow* window) {
         createCommandPool();
         createParticleBuffers();
         createTouchBuffers();
+        setDefaultAttractionPoints(); // place initial circle before first initParticles()
         createComputeDescriptors();
         createComputePipelines();
         createGraphicsPipeline();
@@ -254,8 +255,38 @@ void VulkanParticleEngine::setTouch(int index, float x, float y) {
 }
 
 void VulkanParticleEngine::resetAttractionPoints() {
-    for (auto& pt : touchPositions_) {
-        pt = {-1.0f, -1.0f};
+    // Restore the default circle of attraction points (matches original .rs app).
+    // Falls back to all-disabled when called before dimensions are known (e.g. from ctor).
+    if (width_ > 0 && height_ > 0) {
+        setDefaultAttractionPoints();
+    } else {
+        for (auto& pt : touchPositions_) pt = {-1.0f, -1.0f};
+        if (touchMapped_) updateTouchBuffer();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DEFAULT ATTRACTION POINTS
+// Matches original ParticlesRenderer.java resetAttractionPoints():
+//   l = min(w,h)/3; points[0] at (cx, cy+l); remaining evenly on circle.
+// Coordinates are in Android screen space (Y=0 at top) — no Y-flip needed
+// because Vulkan vertex shader also maps Y=0 to the top of the screen.
+// ═══════════════════════════════════════════════════════════════
+
+void VulkanParticleEngine::setDefaultAttractionPoints() {
+    if (width_ == 0 || height_ == 0) return;
+
+    float cx = width_  / 2.0f;
+    float cy = height_ / 2.0f;
+    float l  = (float)std::min(width_, height_) / 3.0f;
+
+    touchPositions_[0] = {cx, cy + (numTouchPoints_ == 1 ? 0.0f : l)};
+    for (int i = 1; i < numTouchPoints_; i++) {
+        float angle = i * 2.0f * PI / (float)numTouchPoints_;
+        touchPositions_[i] = { cx + l * sinf(angle), cy + l * cosf(angle) };
+    }
+    for (size_t i = (size_t)numTouchPoints_; i < touchPositions_.size(); i++) {
+        touchPositions_[i] = {-1.0f, -1.0f};
     }
     updateTouchBuffer();
 }
@@ -388,11 +419,26 @@ void VulkanParticleEngine::render() {
     vkCmdBindVertexBuffers(graphicsCommandBuffers_[imageIndex],
         0, 2, vertexBuffers, offsets);
 
-    // Push constants for vertex shader (screen size)
+    // Build column-major orthographic matrix matching what the compiled SPV expects:
+    //   mat4 mvpMatrix (offset 0, 64 bytes) + float pointSize (offset 64).
+    // Maps particle coords [0..w]×[0..h] → Vulkan NDC [-1..1]×[-1..1].
+    // Vulkan NDC Y=-1 is top, Y=+1 is bottom; particles use Android Y=0-at-top → correct.
     GraphicsPushConstants gpc{};
-    gpc.width      = (float)width_;
-    gpc.height     = (float)height_;
-    gpc.pointSize  = (float)particleSize_;
+    float fw = (float)width_;
+    float fh = (float)height_;
+    // col 0
+    gpc.mvpMatrix[0]  = 2.0f / fw;  gpc.mvpMatrix[1]  = 0.0f;
+    gpc.mvpMatrix[2]  = 0.0f;       gpc.mvpMatrix[3]  = 0.0f;
+    // col 1
+    gpc.mvpMatrix[4]  = 0.0f;       gpc.mvpMatrix[5]  = 2.0f / fh;
+    gpc.mvpMatrix[6]  = 0.0f;       gpc.mvpMatrix[7]  = 0.0f;
+    // col 2
+    gpc.mvpMatrix[8]  = 0.0f;       gpc.mvpMatrix[9]  = 0.0f;
+    gpc.mvpMatrix[10] = 1.0f;       gpc.mvpMatrix[11] = 0.0f;
+    // col 3 — translation
+    gpc.mvpMatrix[12] = -1.0f;      gpc.mvpMatrix[13] = -1.0f;
+    gpc.mvpMatrix[14] = 0.0f;       gpc.mvpMatrix[15] = 1.0f;
+    gpc.pointSize = (float)particleSize_;
 
     vkCmdPushConstants(graphicsCommandBuffers_[imageIndex],
         graphicsPipelineLayout_,
