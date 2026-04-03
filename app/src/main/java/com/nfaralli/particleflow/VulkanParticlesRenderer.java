@@ -104,6 +104,7 @@ public class VulkanParticlesRenderer {
         boolean ok = nativeInitialize(nativeHandle, surface);
         if (ok) {
             applyParameters();
+            nativeResetAttractionPoints(nativeHandle); // re-set circle with correct numTouchPoints
             nativeInitParticles(nativeHandle);
             initialized = true;
             Log.i(TAG, "Renderer initialized: " + numParticles + " particles");
