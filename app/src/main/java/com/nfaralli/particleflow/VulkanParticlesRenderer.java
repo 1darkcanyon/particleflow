@@ -78,7 +78,6 @@ public class VulkanParticlesRenderer {
     // Touch tracking
     private float[] touchX;
     private float[] touchY;
-    private int[]   touchCounter;
 
     static {
         System.loadLibrary("particleflow");
@@ -90,9 +89,8 @@ public class VulkanParticlesRenderer {
         this.context = context;
         nativeHandle = nativeCreate();
         loadPreferences();
-        touchX       = new float[MAX_TOUCH_POINTS];
-        touchY       = new float[MAX_TOUCH_POINTS];
-        touchCounter = new int[MAX_TOUCH_POINTS];
+        touchX = new float[MAX_TOUCH_POINTS];
+        touchY = new float[MAX_TOUCH_POINTS];
         resetTouchPoints();
     }
 
@@ -139,7 +137,6 @@ public class VulkanParticlesRenderer {
     public void drawFrame() {
         if (!initialized || nativeHandle == 0) return;
 
-        tickTouchCounters();
         nativeUpdateParticles(nativeHandle);
         nativeRender(nativeHandle);
     }
@@ -147,48 +144,25 @@ public class VulkanParticlesRenderer {
     // ── TOUCH HANDLING ────────────────────────────────────────
 
     /**
-     * Activate a touch point. Index = pointer ID.
-     * Matches original app behavior exactly.
+     * Activate a touch point. Point stays until touched again.
+     * Matches original RenderScript behavior exactly.
      */
     public void setTouchPoint(int index, float x, float y) {
         if (index < 0 || index >= numTouchPoints) return;
-        touchX[index]       = x;
-        touchY[index]       = y;
-        touchCounter[index] = 180; // Stay alive for 180 frames (~3 seconds at 60fps) after lift
+        touchX[index] = x;
+        touchY[index] = y;
         nativeSetTouch(nativeHandle, index, x, y);
     }
 
-    /**
-     * Called on pointer up — don't deactivate immediately,
-     * let tickTouchCounters drain the counter.
-     * Matches original "3 consecutive events" behavior.
-     */
+    /** Touch lift — point stays permanently (original behavior). */
     public void releaseTouchPoint(int index) {
-        if (index < 0 || index >= numTouchPoints) return;
-        // Counter will drain to 0 over next frames
-    }
-
-    /**
-     * Tick all touch counters. Deactivate when counter reaches 0.
-     * Replicates original RenderScript touchPoint deactivation.
-     */
-    private void tickTouchCounters() {
-        for (int i = 0; i < numTouchPoints; i++) {
-            if (touchCounter[i] > 0) {
-                touchCounter[i]--;
-                if (touchCounter[i] == 0) {
-                    // Deactivate with negative coords
-                    nativeSetTouch(nativeHandle, i, -1.0f, -1.0f);
-                }
-            }
-        }
+        // Do nothing — attraction points stay where they are
     }
 
     private void resetTouchPoints() {
         for (int i = 0; i < MAX_TOUCH_POINTS; i++) {
-            touchX[i]       = -1.0f;
-            touchY[i]       = -1.0f;
-            touchCounter[i] = 0;
+            touchX[i] = -1.0f;
+            touchY[i] = -1.0f;
         }
         if (nativeHandle != 0) {
             nativeResetAttractionPoints(nativeHandle);
