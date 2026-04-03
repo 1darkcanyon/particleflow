@@ -77,8 +77,8 @@ VulkanParticleEngine::VulkanParticleEngine()
     params_.fastS      = 1.0f;
     params_.fastV      = 1.0f;
     params_.hueDir     = 0;
-    params_.attract    = 100.0f;
-    params_.drag       = 0.96f;
+    params_.attract    = 300.0f;
+    params_.drag       = 0.94f;
     params_.width      = 1.0f;
     params_.height     = 1.0f;
     params_.numPart    = numParticles_;
@@ -278,7 +278,7 @@ void VulkanParticleEngine::setDefaultAttractionPoints() {
 
     float cx = width_  / 2.0f;
     float cy = height_ / 2.0f;
-    float l  = (float)std::min(width_, height_) / 3.0f;
+    float l  = (float)std::min(width_, height_) / 2.5f;
 
     touchPositions_[0] = {cx, cy + (numTouchPoints_ == 1 ? 0.0f : l)};
     for (int i = 1; i < numTouchPoints_; i++) {
