@@ -101,17 +101,17 @@ vec4 hsv2rgba(float h, float s, float v) {
 float getHue(float coef) {
     float sh = pc.slowHue;
     float fh = pc.fastHue;
-    
-    if (sh < fh && pc.hueDirection == 0) {
-        sh += 1.0;
-    } else if (sh > fh && pc.hueDirection == 1) {
+
+    // Clockwise (hueDir=0): if slow > fast, wrap fast up so lerp increases through 1.0→0.0
+    // Counterclockwise (hueDir=1): if slow < fast, wrap slow up so lerp decreases through 0.0→1.0
+    if (sh > fh && pc.hueDirection == 0) {
         fh += 1.0;
+    } else if (sh < fh && pc.hueDirection == 1) {
+        sh += 1.0;
     }
-    
+
     float hue = (1.0 - coef) * sh + coef * fh;
-    if (hue >= 1.0) {
-        hue -= 1.0;
-    }
+    if (hue >= 1.0) hue -= 1.0;
     return hue;
 }
 
@@ -124,11 +124,11 @@ float getValue(float coef) {
 }
 
 float getSpeedCoef(vec2 v) {
-    float coef = log(v.x * v.x + v.y * v.y + 1.0) / 4.5;
-    if (coef > 1.0) {
-        coef = 1.0;
-    }
-    return coef;
+    // Divisor tuned so the full color range is visible across typical orbital velocities.
+    // Particles orbit at 5-25 px/frame with default attract=100, drag=0.96.
+    // Divisor 9.0 → coef≈0.4 at v=5, coef≈0.8 at v=25, saturates gradually.
+    float coef = log(v.x * v.x + v.y * v.y + 1.0) / 9.0;
+    return min(coef, 1.0);
 }
 
 void main() {
