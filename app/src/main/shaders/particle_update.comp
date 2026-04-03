@@ -144,25 +144,20 @@ void main() {
     
     // Accumulate acceleration from all touch points
     vec2 acc = vec2(0.0, 0.0);
-    
+
     for (uint i = 0; i < pc.numTouchPoints; i++) {
         vec2 touchPos = gTouch[i];
-        
-        // Negative x means this touch point is disabled
+
         if (touchPos.x >= 0.0) {
-            vec2 diff = touchPos - pt;
+            vec2  diff       = touchPos - pt;
             float diffSqNorm = diff.x * diff.x + diff.y * diff.y;
-            
-            // Avoid division by zero - use random direction if too close
-            if (diffSqNorm < 0.1) {
-                uint seed = pc.randomSeed + index + i * 1000u;
-                float theta = randomFloat(seed) * 6.28318530718; // 2*PI
-                diff.x = cos(theta);
-                diff.y = sin(theta);
-                diffSqNorm = 1.0;
-            }
-            
-            // F = k / r^2
+
+            // Clamp minimum approach distance (50px) so force never blows up
+            // near the attractor. Particles orbit at this radius instead of
+            // getting shot out at hundreds of px/frame.
+            const float MIN_DIST_SQ = 50.0 * 50.0;
+            diffSqNorm = max(diffSqNorm, MIN_DIST_SQ);
+
             acc += (pc.f01AttractionCoef / diffSqNorm) * diff;
         }
     }

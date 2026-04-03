@@ -52,8 +52,8 @@ public class VulkanParticlesRenderer {
     public static final int   DEFAULT_FAST_G         = 76;
     public static final int   DEFAULT_FAST_B         = 76;
     public static final int   DEFAULT_HUE_DIR        = 0;
-    public static final int   DEFAULT_ATTRACT        = 300;
-    public static final int   DEFAULT_DRAG           = 6;    // 6% → 0.94 drag coef — tighter orbits
+    public static final int   DEFAULT_ATTRACT        = 150;
+    public static final int   DEFAULT_DRAG           = 12;   // 12% → 0.88 coef — orbits settle fast
     public static final int   MAX_PARTICLES          = 1000000;
     public static final int   MAX_TOUCH_POINTS       = 16;
 

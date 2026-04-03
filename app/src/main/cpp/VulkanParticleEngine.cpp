@@ -77,8 +77,8 @@ VulkanParticleEngine::VulkanParticleEngine()
     params_.fastS      = 1.0f;
     params_.fastV      = 1.0f;
     params_.hueDir     = 0;
-    params_.attract    = 300.0f;
-    params_.drag       = 0.94f;
+    params_.attract    = 150.0f;
+    params_.drag       = 0.88f;
     params_.width      = 1.0f;
     params_.height     = 1.0f;
     params_.numPart    = numParticles_;
