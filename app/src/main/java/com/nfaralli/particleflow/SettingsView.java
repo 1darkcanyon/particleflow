@@ -5,7 +5,6 @@ import android.content.Context;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.AdapterView;
 import android.widget.Button;
@@ -115,44 +114,12 @@ public class SettingsView extends Dialog {
         updateParticleGradient();
 
         // Buttons
-        Button resetBtn = findViewById(R.id.resetButton);
+        Button resetBtn  = findViewById(R.id.resetButton);
+        Button cancelBtn = findViewById(R.id.cancelButton);
+        Button applyBtn  = findViewById(R.id.applyButton);
         resetBtn.setOnClickListener(v -> resetToDefaults());
-
-        // Apply / Cancel via title bar substitute — add a simple row below the scroll
-        // The original had no explicit OK/Cancel; we add them programmatically below scroll
-        addApplyCancelRow();
-    }
-
-    /** Adds Apply + Cancel buttons below the ScrollView (not in the XML). */
-    private void addApplyCancelRow() {
-        android.widget.LinearLayout root =
-            (android.widget.LinearLayout) ((android.widget.ScrollView)
-                ((android.widget.LinearLayout) getWindow().getDecorView()
-                    .findViewById(android.R.id.content))
-                    .getChildAt(0)).getParent();
-
-        android.widget.LinearLayout btnRow = new android.widget.LinearLayout(getContext());
-        btnRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-        btnRow.setPadding(dp(8), dp(8), dp(8), dp(8));
-
-        Button cancelBtn = new Button(getContext());
-        cancelBtn.setText(R.string.cancel);
         cancelBtn.setOnClickListener(v -> dismiss());
-        android.widget.LinearLayout.LayoutParams lp =
-            new android.widget.LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        lp.setMarginEnd(dp(4));
-        cancelBtn.setLayoutParams(lp);
-        btnRow.addView(cancelBtn);
-
-        Button applyBtn = new Button(getContext());
-        applyBtn.setText(R.string.apply);
         applyBtn.setOnClickListener(v -> applyAndDismiss());
-        android.widget.LinearLayout.LayoutParams lp2 =
-            new android.widget.LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        applyBtn.setLayoutParams(lp2);
-        btnRow.addView(applyBtn);
-
-        root.addView(btnRow);
     }
 
     private void applyAndDismiss() {

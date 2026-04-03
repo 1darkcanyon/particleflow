@@ -9,13 +9,19 @@ import android.util.AttributeSet;
 import android.view.View;
 
 /**
- * Custom gear icon view. Draws a simple gear shape on canvas.
- * Sized to ~40dp. Set an OnClickListener from the activity to handle taps.
+ * Canvas-drawn gear icon. Fully transparent until the user touches
+ * the corner it occupies; then fades in and auto-hides after 3 seconds.
+ *
+ * Reveal it by calling show() from MainActivity.dispatchTouchEvent()
+ * when a touch lands in the top-right corner region.
+ * Clicking the visible gear fires the OnClickListener.
  */
 public class GearView extends View {
 
+    private static final long HIDE_DELAY_MS = 3000;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path  path  = new Path();
+    private final Runnable hideRunnable = () -> setAlpha(0f);
 
     public GearView(Context context) {
         super(context);
@@ -35,14 +41,26 @@ public class GearView extends View {
     private void init() {
         paint.setColor(Color.WHITE);
         paint.setStyle(Paint.Style.FILL);
-        setAlpha(0.7f);
+        setAlpha(0f);          // invisible until corner touched
         setClickable(true);
         setFocusable(true);
     }
 
+    /** Call this when a touch lands in the corner area. */
+    public void show() {
+        removeCallbacks(hideRunnable);
+        setAlpha(0.75f);
+        postDelayed(hideRunnable, HIDE_DELAY_MS);
+    }
+
+    /** Returns true if the gear is currently visible (alpha > 0). */
+    public boolean isVisible() {
+        return getAlpha() > 0.05f;
+    }
+
     @Override
     protected void onMeasure(int widthSpec, int heightSpec) {
-        int size = dp(48);
+        int size = dp(52);
         setMeasuredDimension(size, size);
     }
 
@@ -51,39 +69,34 @@ public class GearView extends View {
         super.onDraw(canvas);
         float cx    = getWidth()  / 2f;
         float cy    = getHeight() / 2f;
-        float outer = cx * 0.72f;
-        float inner = cx * 0.44f;
-        float tooth = cx * 0.20f;
+        float outer = cx * 0.70f;
+        float inner = cx * 0.42f;
+        float tooth = cx * 0.22f;
         int   teeth = 8;
 
         path.reset();
         for (int i = 0; i < teeth; i++) {
-            double base0  = Math.PI * 2 * i / teeth;
-            double base1  = base0 + Math.PI * 0.5 / teeth;
-            double tip0   = base1;
-            double tip1   = base0 + Math.PI / teeth;
+            double base0 = Math.PI * 2 * i / teeth;
+            double base1 = base0 + Math.PI * 0.45 / teeth;
+            double tip0  = base1;
+            double tip1  = base0 + Math.PI * 0.95 / teeth;
+            double next  = base0 + Math.PI * 1.1  / teeth;
 
-            float ox0 = cx + outer * (float) Math.cos(base0);
-            float oy0 = cy + outer * (float) Math.sin(base0);
-            float tx0 = cx + (outer + tooth) * (float) Math.cos(tip0);
-            float ty0 = cy + (outer + tooth) * (float) Math.sin(tip0);
-            float tx1 = cx + (outer + tooth) * (float) Math.cos(tip1);
-            float ty1 = cy + (outer + tooth) * (float) Math.sin(tip1);
-            float ox1 = cx + outer * (float) Math.cos(base1 + Math.PI / teeth);
-            float oy1 = cy + outer * (float) Math.sin(base1 + Math.PI / teeth);
+            if (i == 0) path.moveTo(cx + outer * (float)Math.cos(base0),
+                                    cy + outer * (float)Math.sin(base0));
+            else        path.lineTo(cx + outer * (float)Math.cos(base0),
+                                    cy + outer * (float)Math.sin(base0));
 
-            if (i == 0) path.moveTo(ox0, oy0);
-            else        path.lineTo(ox0, oy0);
-            path.lineTo(tx0, ty0);
-            path.lineTo(tx1, ty1);
-            path.lineTo(ox1, oy1);
+            path.lineTo(cx + (outer + tooth) * (float)Math.cos(tip0),
+                        cy + (outer + tooth) * (float)Math.sin(tip0));
+            path.lineTo(cx + (outer + tooth) * (float)Math.cos(tip1),
+                        cy + (outer + tooth) * (float)Math.sin(tip1));
+            path.lineTo(cx + outer * (float)Math.cos(next),
+                        cy + outer * (float)Math.sin(next));
         }
         path.close();
-
-        // Cut out centre hole
         path.addCircle(cx, cy, inner, Path.Direction.CCW);
 
-        paint.setColor(Color.WHITE);
         canvas.drawPath(path, paint);
     }
 
