@@ -4,12 +4,9 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.os.Build;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import android.widget.Button;
-import android.widget.FrameLayout;
 
 public class MainActivity extends Activity {
 
@@ -32,7 +29,7 @@ public class MainActivity extends Activity {
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
 
-        // Immersive sticky fullscreen — hides status bar and nav bar
+        // Immersive sticky: hides status bar and nav bar
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
             | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -43,55 +40,28 @@ public class MainActivity extends Activity {
         );
 
         try {
-            surfaceView = new ParticlesSurfaceView(this);
+            setContentView(R.layout.activity_main);
 
-            // Root frame that layers the surface view with the gear button overlay
-            FrameLayout frame = new FrameLayout(this);
-            frame.addView(surfaceView);
+            surfaceView = findViewById(R.id.particles_view);
+            GearView gearView = findViewById(R.id.gear_view);
+            gearView.setOnClickListener(v -> showSettings());
 
-            // Floating gear button in the top-right corner
-            Button gearBtn = new Button(this);
-            gearBtn.setText("⚙");
-            gearBtn.setTextSize(20);
-            gearBtn.setAlpha(0.6f);
-            gearBtn.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-            gearBtn.setContentDescription(getString(R.string.settings_button_desc));
-            int margin = dp(8);
-            FrameLayout.LayoutParams gearParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP | Gravity.END
-            );
-            gearParams.topMargin   = margin;
-            gearParams.setMarginEnd(margin);
-            gearBtn.setLayoutParams(gearParams);
-            gearBtn.setOnClickListener(v -> showSettings());
-            frame.addView(gearBtn);
-
-            setContentView(frame);
         } catch (Throwable t) {
-            // Show error on screen so we can read it
             new AlertDialog.Builder(this)
-                .setTitle("NEXUS Crash")
+                .setTitle("ParticleFlow Crash")
                 .setMessage(t.getClass().getSimpleName() + "\n\n" + t.getMessage())
                 .setPositiveButton("OK", null)
                 .show();
         }
     }
 
-    public void initTesla369() {
-        if (surfaceView != null) surfaceView.initTesla369();
-    }
-
     public void showSettings() {
         if (surfaceView != null) {
-            SettingsView settings = new SettingsView(this, surfaceView.getRenderer());
-            settings.show();
+            new SettingsView(this, surfaceView.getRenderer()).show();
         }
     }
 
-    private int dp(int dp) {
-        float density = getResources().getDisplayMetrics().density;
-        return (int)(dp * density + 0.5f);
+    public void initTesla369() {
+        if (surfaceView != null) surfaceView.initTesla369();
     }
 }

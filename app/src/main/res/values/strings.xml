@@ -1,19 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ParticleFlow</string>
-    <string name="settings_title">Settings</string>
-    <string name="attraction_label">Attraction Force</string>
-    <string name="drag_label">Drag Coefficient</string>
-    <string name="hue_direction_label">Color Direction</string>
-    <string name="clockwise">Clockwise</string>
-    <string name="counterclockwise">Counter-Clockwise</string>
-    <string name="particle_count_label">Particles</string>
-    <string name="particle_size_label">Size</string>
-    <string name="bg_color_label">Background Color</string>
-    <string name="slow_color_label">Slow Color</string>
-    <string name="fast_color_label">Fast Color</string>
-    <string name="reset_button">Reset</string>
-    <string name="cancel_button">Cancel</string>
-    <string name="apply_button">Apply</string>
     <string name="settings_button_desc">Open Settings</string>
+
+    <!-- Settings labels — match original master strings -->
+    <string name="num_particles">Number of particles</string>
+    <string name="particle_size">Particle size</string>
+    <string name="num_att_points">Number of attraction points</string>
+    <string name="bg_color">Background color</string>
+    <string name="particles_colors">Particles colors</string>
+    <string name="slow_particles_colors">Slow particles color</string>
+    <string name="fast_particles_colors">Fast particles color</string>
+    <string name="hue_direction">Hue direction</string>
+    <string name="force_coefficients">Force coefficients</string>
+    <string name="force01_attraction">Attraction</string>
+    <string name="force01_drag">Drag</string>
+    <string name="reset">Reset</string>
+    <string name="cancel">Cancel</string>
+    <string name="apply">Apply</string>
 </resources>
