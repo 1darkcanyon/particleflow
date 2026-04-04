@@ -1,79 +1,102 @@
-package com.nfaralli.particleflow;
+package com.yourpackage.name; // <-- change to your real package
 
-import android.app.Activity;
-import android.app.AlertDialog;
+import android.content.SharedPreferences;
+import android.media.MediaPlayer;
 import android.os.Bundle;
-import android.view.Gravity;
-import android.view.Window;
-import android.view.WindowManager;
-import android.widget.Button;
-import android.widget.FrameLayout;
+import android.preference.PreferenceManager;
+import androidx.appcompat.app.AppCompatActivity;
 
-public class MainActivity extends Activity {
+public class MainActivity extends AppCompatActivity {
+    private MediaPlayer mediaPlayer;
+    private int currentTrack = 0; // 0: Silent
 
-    private ParticlesSurfaceView surfaceView;
+    private final SharedPreferences.OnSharedPreferenceChangeListener listener =
+            (prefs, key) -> {
+                if ("selected_track".equals(key)) {
+                    updateAndPlayTrack();
+                }
+            };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // ... your usual onCreate code (e.g., setContentView)
+        PreferenceManager.getDefaultSharedPreferences(this)
+                .registerOnSharedPreferenceChangeListener(listener);
 
-        requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getWindow().setFlags(
-            WindowManager.LayoutParams.FLAG_FULLSCREEN,
-            WindowManager.LayoutParams.FLAG_FULLSCREEN
-        );
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        updateAndPlayTrack(); // Play track on launch if not silent
+    }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (currentTrack > 0 && mediaPlayer != null) {
+            mediaPlayer.start();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        pauseMusic();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        releaseMusic();
+        PreferenceManager.getDefaultSharedPreferences(this)
+                .unregisterOnSharedPreferenceChangeListener(listener);
+    }
+
+    private void updateAndPlayTrack() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        int selectedTrack;
         try {
-            surfaceView = new ParticlesSurfaceView(this);
-
-            // Root frame that layers the surface view with the gear button overlay
-            FrameLayout frame = new FrameLayout(this);
-            frame.addView(surfaceView);
-
-            // Floating gear button in the top-right corner
-            Button gearBtn = new Button(this);
-            gearBtn.setText("⚙");
-            gearBtn.setTextSize(20);
-            gearBtn.setAlpha(0.6f);
-            gearBtn.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-            gearBtn.setContentDescription(getString(R.string.settings_button_desc));
-            int margin = dp(8);
-            FrameLayout.LayoutParams gearParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP | Gravity.END
-            );
-            gearParams.topMargin   = margin;
-            gearParams.setMarginEnd(margin);
-            gearBtn.setLayoutParams(gearParams);
-            gearBtn.setOnClickListener(v -> showSettings());
-            frame.addView(gearBtn);
-
-            setContentView(frame);
-        } catch (Throwable t) {
-            // Show error on screen so we can read it
-            new AlertDialog.Builder(this)
-                .setTitle("NEXUS Crash")
-                .setMessage(t.getClass().getSimpleName() + "\n\n" + t.getMessage())
-                .setPositiveButton("OK", null)
-                .show();
+            selectedTrack = Integer.parseInt(prefs.getString("selected_track", "0"));
+        } catch (NumberFormatException e) {
+            selectedTrack = 0;
+        }
+        if (selectedTrack != currentTrack) {
+            releaseMusic();
+            currentTrack = selectedTrack;
+        }
+        if (currentTrack > 0) {
+            playMusic(currentTrack);
+        } else {
+            releaseMusic();
         }
     }
 
-    public void initTesla369() {
-        if (surfaceView != null) surfaceView.initTesla369();
-    }
+    private void playMusic(int trackNumber) {
+        if (mediaPlayer != null) {
+            // Already playing this track
+            return;
+        }
+        int resId = getResources().getIdentifier(
+                "music" + trackNumber, "raw", getPackageName());
+        if (resId == 0) return; // No such resource
 
-    public void showSettings() {
-        if (surfaceView != null) {
-            SettingsView settings = new SettingsView(this, surfaceView.getRenderer());
-            settings.show();
+        mediaPlayer = MediaPlayer.create(this, resId);
+        if (mediaPlayer != null) {
+            mediaPlayer.setLooping(true);
+            mediaPlayer.start();
         }
     }
 
-    private int dp(int dp) {
-        float density = getResources().getDisplayMetrics().density;
-        return (int)(dp * density + 0.5f);
+    private void pauseMusic() {
+        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+            mediaPlayer.pause();
+        }
+    }
+
+    private void releaseMusic() {
+        if (mediaPlayer != null) {
+            if (mediaPlayer.isPlaying()) {
+                mediaPlayer.stop();
+            }
+            mediaPlayer.release();
+            mediaPlayer = null;
+        }
     }
 }
