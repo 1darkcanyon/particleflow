@@ -2,6 +2,8 @@ package com.nfaralli.particleflow;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.SharedPreferences;
+import android.media.MediaPlayer;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.Window;
@@ -12,6 +14,8 @@ import android.widget.FrameLayout;
 public class MainActivity extends Activity {
 
     private ParticlesSurfaceView surfaceView;
+    private MediaPlayer mediaPlayer;
+    private boolean musicWasPlaying = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,6 +62,59 @@ public class MainActivity extends Activity {
                 .setMessage(t.getClass().getSimpleName() + "\n\n" + t.getMessage())
                 .setPositiveButton("OK", null)
                 .show();
+        }
+
+        loadAndStartMusic();
+    }
+
+    private void loadAndStartMusic() {
+        SharedPreferences prefs = getSharedPreferences(
+            VulkanParticlesRenderer.PREFS_NAME, MODE_PRIVATE);
+        int track = prefs.getInt("selected_track", 0);
+        applyMusicTrack(track);
+    }
+
+    public void applyMusicTrack(int trackIndex) {
+        if (mediaPlayer != null) {
+            mediaPlayer.release();
+            mediaPlayer = null;
+        }
+        if (trackIndex < 1 || trackIndex > 7) return;
+        int resId = getResources().getIdentifier(
+            "music" + trackIndex, "raw", getPackageName());
+        if (resId == 0) return;
+        mediaPlayer = MediaPlayer.create(this, resId);
+        if (mediaPlayer != null) {
+            mediaPlayer.setLooping(true);
+            mediaPlayer.start();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+            mediaPlayer.pause();
+            musicWasPlaying = true;
+        } else {
+            musicWasPlaying = false;
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (mediaPlayer != null && musicWasPlaying && !mediaPlayer.isPlaying()) {
+            mediaPlayer.start();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (mediaPlayer != null) {
+            mediaPlayer.release();
+            mediaPlayer = null;
         }
     }
 
