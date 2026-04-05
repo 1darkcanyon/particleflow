@@ -1,7 +1,11 @@
 #version 450
 
-// Compute shader to initialize particles
-// Equivalent to RenderScript's initParticles() function
+// Sacred geometry formation init - PR by Copilot April 2026
+// Compute shader to initialize particles in a Flower of Life sacred geometry formation.
+// Particles are arranged in concentric rings with 6-fold (hexagonal) symmetry,
+// mirroring the structure of the Flower of Life pattern.
+// Positions are computed relative to the current surface size so the formation
+// is always centered and fills the screen proportionally.
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
@@ -36,22 +40,6 @@ layout(std430, binding = 1) buffer VelocityBuffer {
 layout(std430, binding = 2) buffer ColorBuffer {
     vec4 color[];
 };
-
-// Simple hash function for pseudo-random numbers
-uint hash(uint x) {
-    x += (x << 10u);
-    x ^= (x >> 6u);
-    x += (x << 3u);
-    x ^= (x >> 11u);
-    x += (x << 15u);
-    return x;
-}
-
-// Generate random float in [0, 1) from seed
-float randomFloat(inout uint seed) {
-    seed = hash(seed);
-    return float(seed) / 4294967296.0;
-}
 
 // HSV to RGBA conversion
 vec4 hsv2rgba(float h, float s, float v) {
@@ -120,30 +108,86 @@ float getValue(float coef) {
 
 void main() {
     uint index = gl_GlobalInvocationID.x;
-    
+
     if (index >= pc.numParticles) {
         return;
     }
-    
-    // Initialize random seed for this particle
-    uint seed = pc.randomSeed + index * 1000u;
-    
-    // Calculate radius of initialization disk
-    float radius = sqrt(pc.width * pc.width + pc.height * pc.height) / 2.0;
-    
-    // Uniform distribution over a disk
-    float r = radius * sqrt(randomFloat(seed));
-    float theta = randomFloat(seed) * 6.28318530718; // 2*PI
-    
-    // Set position
+
+    // ── Flower of Life Sacred Geometry ──────────────────────────────────────
+    // The Flower of Life is built from concentric rings with 6-fold symmetry:
+    //   Ring 0 : 1 particle  at the very center
+    //   Ring k : 6*k particles evenly spaced around a circle of radius k*baseR
+    //
+    // Cumulative particle count through ring k:  f(k) = 1 + 3*k*(k+1)
+    //
+    // Given a particle index i we find its ring analytically:
+    //   k = floor( (-3 + sqrt(9 + 12*i)) / 6 )   (derived by solving f(k) > i)
+    //
+    // Each successive ring is rotated by PI/6 (30 deg) relative to the previous
+    // one, creating the interlocking-petal appearance of the Flower of Life.
+    // ────────────────────────────────────────────────────────────────────────
+
+    const float TWO_PI   = 6.28318530718;
+    const float PI_OVER6 = 0.52359877559; // PI / 6  (30 degrees)
+
+    // Screen centre — positions are in Android pixel space (Y=0 at top).
+    float cx = pc.width  * 0.5;
+    float cy = pc.height * 0.5;
+
+    // Base ring spacing: each ring is baseR pixels apart.
+    // Factor 0.08 spreads ~5 visible rings across ~40% of the shorter dimension.
+    float baseR = min(pc.width, pc.height) * 0.08;
+
+    // ── Find which ring this particle belongs to ─────────────────────────────
+    // Analytical inverse of f(k) = 1 + 3*k*(k+1).
+    //
+    // We solve 3k²+3k+1 > index for the smallest integer k, giving:
+    //   k_exact = (-3 + sqrt(9 + 12*index)) / 6
+    //
+    // floor(k_exact) may be 1 too low when index is EXACTLY at a ring boundary
+    // (i.e. index == f(k-1)), because the continuous function value equals an
+    // integer and floating-point rounding can push it infinitesimally below.
+    // The correction below detects this by checking whether index has already
+    // reached the cumulative count for the computed ring (meaning the particle
+    // belongs to the NEXT ring) and bumps k up by 1 in that case.
+    int  ring;
+    uint ringStart;
+    if (index == 0u) {
+        // Special case: the very first particle sits exactly at the centre.
+        ring      = 0;
+        ringStart = 0u;
+    } else {
+        ring = int(floor((-3.0 + sqrt(9.0 + 12.0 * float(index))) / 6.0));
+        // f(ring) = cumulative count through ring `ring`; if index has reached
+        // this boundary the particle actually belongs to ring `ring+1`.
+        uint fRing = 1u + 3u * uint(ring) * uint(ring + 1);
+        if (index >= fRing) ring++;
+        // ringStart = f(ring-1) = 1 + 3*(ring-1)*ring  (start of this ring)
+        ringStart = 1u + 3u * uint(ring - 1) * uint(ring);
+    }
+
+    uint posInRing = index - ringStart;
+    uint ringSize  = (ring == 0) ? 1u : uint(6 * ring);
+
+    // ── Compute position on the ring ─────────────────────────────────────────
+    float r = float(ring) * baseR;
+
+    // Rotate each ring by PI/6 relative to the previous ring so the petals
+    // interlock — this is the defining visual signature of the Flower of Life.
+    float angleOffset = float(ring) * PI_OVER6;
+    float angle = (ringSize <= 1u)
+        ? 0.0
+        : (angleOffset + TWO_PI * float(posInRing) / float(ringSize));
+
+    // Set position (relative to screen centre)
     position[index] = vec2(
-        pc.width / 2.0 + r * cos(theta),
-        pc.height / 2.0 + r * sin(theta)
+        cx + r * cos(angle),
+        cy + r * sin(angle)
     );
-    
+
     // Initialize velocity to zero
     velocity[index] = vec2(0.0, 0.0);
-    
+
     // Set initial color (speed = 0, so use slow color)
     float speedCoef = 0.0;
     color[index] = hsv2rgba(

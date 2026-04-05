@@ -1,6 +1,8 @@
 #ifndef VULKAN_PARTICLE_ENGINE_H
 #define VULKAN_PARTICLE_ENGINE_H
 
+// Sacred geometry formation init - PR by Copilot April 2026
+
 #include <vulkan/vulkan.h>
 #include <android/native_window.h>
 #include <android/asset_manager.h>

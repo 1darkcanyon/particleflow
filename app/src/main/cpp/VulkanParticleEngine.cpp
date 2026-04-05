@@ -4,6 +4,8 @@
 // NEXUS Engineering — Canyon (Kaneon)
 // Behavioral parity with original RenderScript implementation
 //
+// Sacred geometry formation init - PR by Copilot April 2026
+//
 
 #include "VulkanParticleEngine.h"
 #include "VulkanHelpers.h"
@@ -161,7 +163,13 @@ void VulkanParticleEngine::setParameters(
 
 // ═══════════════════════════════════════════════════════════════
 // PARTICLE INITIALIZATION
-// Replicates original RenderScript forEach_initParticles
+// Dispatches the init compute shader (particle_init.comp.spv).
+// The shader places particles in concentric rings following the
+// Flower of Life sacred geometry pattern — ring k has 6*k particles
+// arranged in a circle of radius k * (min(w,h) * 0.08) pixels,
+// each ring rotated 30° relative to the previous for petal interlocking.
+// Width and height MUST be set (via setParameters) before calling this
+// so the formation is correctly centered on the screen.
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::initParticles() {
@@ -494,6 +502,9 @@ void VulkanParticleEngine::onSurfaceChanged(int width, int height) {
     if (initialized_) {
         vkDeviceWaitIdle(device_);
         recreateSwapchain();
+        // Refresh attraction-point circle so it stays centered and properly
+        // scaled after a screen-size or orientation change.
+        setDefaultAttractionPoints();
     }
 }
 
