@@ -124,10 +124,8 @@ float getValue(float coef) {
 }
 
 float getSpeedCoef(vec2 v) {
-    // Divisor tuned so the full color range is visible across typical orbital velocities.
-    // Particles orbit at 5-25 px/frame with default attract=100, drag=0.96.
-    // Divisor 9.0 → coef≈0.4 at v=5, coef≈0.8 at v=25, saturates gradually.
-    float coef = log(v.x * v.x + v.y * v.y + 1.0) / 9.0;
+    // Matches original RenderScript kernel: log(vx²+vy²+1)/4.5
+    float coef = log(v.x * v.x + v.y * v.y + 1.0) / 4.5;
     return min(coef, 1.0);
 }
 
@@ -164,20 +162,20 @@ void main() {
     
     // Update velocity with acceleration
     vel += acc;
-    
+
     // Update position with velocity
     pt += vel;
-    
-    // Apply drag
-    vel *= pc.f01DragCoef;
-    
-    // Update color based on speed
+
+    // Color is computed from pre-drag velocity (matches original RenderScript order)
     float speedCoef = getSpeedCoef(vel);
     vec4 col = hsv2rgba(
         getHue(speedCoef),
         getSaturation(speedCoef),
         getValue(speedCoef)
     );
+
+    // Apply drag LAST
+    vel *= pc.f01DragCoef;
     
     // Write back updated state
     position[index] = pt;

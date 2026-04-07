@@ -14,12 +14,8 @@ layout(push_constant) uniform PushConstants {
 } pc;
 
 void main() {
-    // Transform position to clip space
     gl_Position = pc.mvpMatrix * vec4(inPosition, 0.0, 1.0);
-    
-    // Set point size
+    gl_Position.y = -gl_Position.y;  // particle y=0 is bottom; Vulkan NDC y=-1 is top
     gl_PointSize = pc.pointSize;
-    
-    // Pass color to fragment shader
     fragColor = inColor;
 }
