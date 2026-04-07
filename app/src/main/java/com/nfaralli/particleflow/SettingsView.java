@@ -2,6 +2,7 @@ package com.nfaralli.particleflow;
 
 import android.app.Dialog;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
@@ -47,6 +48,7 @@ public class SettingsView extends Dialog {
     private int   hueDir;
     private int   attractionPct;
     private int   dragPct;
+    private int   selectedTrack;
 
     // ── CONSTRUCTOR ───────────────────────────────────────────
 
@@ -54,6 +56,9 @@ public class SettingsView extends Dialog {
         super(context);
         this.renderer = renderer;
         loadFromRenderer();
+        SharedPreferences prefs = context.getSharedPreferences(
+            VulkanParticlesRenderer.PREFS_NAME, Context.MODE_PRIVATE);
+        selectedTrack = prefs.getInt("selected_track", 0);
     }
 
     private void loadFromRenderer() {
@@ -237,6 +242,33 @@ public class SettingsView extends Dialog {
 
         root.addView(makeDivider(ctx));
 
+        // ── MUSIC TRACK ───────────────────────────────────────
+        root.addView(makeLabel(ctx, "Music Track"));
+        Spinner musicSpinner = new Spinner(ctx);
+        String[] trackEntries = new String[8];
+        trackEntries[0] = "Silent";
+        for (int i = 1; i <= 7; i++) trackEntries[i] = "Track " + i;
+        ArrayAdapter<String> musicAdapter = new ArrayAdapter<>(ctx,
+            android.R.layout.simple_spinner_item, trackEntries);
+        musicAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        musicSpinner.setAdapter(musicAdapter);
+        musicSpinner.setSelection(selectedTrack);
+        musicSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View v, int pos, long id) {
+                selectedTrack = pos;
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) {}
+        });
+        LinearLayout.LayoutParams musicSpinnerParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT);
+        musicSpinnerParams.bottomMargin = padSm;
+        musicSpinner.setLayoutParams(musicSpinnerParams);
+        root.addView(musicSpinner);
+
+        root.addView(makeDivider(ctx));
+
         // ── BUTTONS ROW ───────────────────────────────────────
         LinearLayout btnRow = new LinearLayout(ctx);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -291,6 +323,12 @@ public class SettingsView extends Dialog {
         renderer.setAttractionPct(attractionPct);
         renderer.setDragPct(dragPct);
         renderer.savePreferences();
+
+        getContext().getSharedPreferences(
+            VulkanParticlesRenderer.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putInt("selected_track", selectedTrack).apply();
+        ((MainActivity) getContext()).applyMusicTrack(selectedTrack);
+
         renderer.applyParameters();
         renderer.resetParticles();
         dismiss();
