@@ -37,22 +37,22 @@ public class VulkanParticlesRenderer {
     public static final String KEY_ATTRACT        = "attraction";
     public static final String KEY_DRAG           = "drag";
 
-    // ── DEFAULTS (match original app exactly) ─────────────────
-    public static final int   DEFAULT_NUM_PARTICLES = 50000;
+    // ── DEFAULTS ──────────────────────────────────────────────
+    public static final int   DEFAULT_NUM_PARTICLES = 999999;
     public static final int   DEFAULT_PARTICLE_SIZE = 1;
-    public static final int   DEFAULT_NUM_TOUCH      = 2;
+    public static final int   DEFAULT_NUM_TOUCH      = 6;
     public static final int   DEFAULT_BG_R           = 0;
     public static final int   DEFAULT_BG_G           = 0;
     public static final int   DEFAULT_BG_B           = 0;
-    public static final int   DEFAULT_SLOW_R         = 76;   // #4C4CFF
-    public static final int   DEFAULT_SLOW_G         = 76;
-    public static final int   DEFAULT_SLOW_B         = 255;
-    public static final int   DEFAULT_FAST_R         = 255;  // #FF4C4C
-    public static final int   DEFAULT_FAST_G         = 76;
-    public static final int   DEFAULT_FAST_B         = 76;
-    public static final int   DEFAULT_HUE_DIR        = 0;
-    public static final int   DEFAULT_ATTRACT        = 100;
-    public static final int   DEFAULT_DRAG           = 4;    // 4% → 0.96 drag coef
+    public static final int   DEFAULT_SLOW_R         = 1;    // canyon blue dark
+    public static final int   DEFAULT_SLOW_G         = 52;
+    public static final int   DEFAULT_SLOW_B         = 104;
+    public static final int   DEFAULT_FAST_R         = 153;  // canyon blue light
+    public static final int   DEFAULT_FAST_G         = 206;
+    public static final int   DEFAULT_FAST_B         = 255;
+    public static final int   DEFAULT_HUE_DIR        = 0;    // Clockwise
+    public static final int   DEFAULT_ATTRACT        = 28;
+    public static final int   DEFAULT_DRAG           = 0;
     public static final int   MAX_PARTICLES          = 1000000;
     public static final int   MAX_TOUCH_POINTS       = 16;
 
