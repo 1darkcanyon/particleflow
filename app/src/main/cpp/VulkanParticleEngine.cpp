@@ -622,8 +622,11 @@ void VulkanParticleEngine::createSwapchain() {
 
     swapchainFormat_ = formats[0].format;
     for (auto& f : formats) {
-        if (f.format == VK_FORMAT_R8G8B8A8_UNORM ||
-            f.format == VK_FORMAT_B8G8R8A8_UNORM) {
+        // Prefer sRGB framebuffer to match original RenderScript color space handling.
+        // sRGB encoding is applied automatically by the GPU, matching the display pipeline
+        // expected by the original app. UNORM skips gamma and causes washed-out colors.
+        if (f.format == VK_FORMAT_R8G8B8A8_SRGB ||
+            f.format == VK_FORMAT_B8G8R8A8_SRGB) {
             swapchainFormat_ = f.format;
             break;
         }
