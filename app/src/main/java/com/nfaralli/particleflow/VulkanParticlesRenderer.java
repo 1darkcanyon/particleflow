@@ -357,6 +357,7 @@ public class VulkanParticlesRenderer {
 
     private native long    nativeCreate();
     private native void    nativeDestroy(long handle);
+    private native void    nativeSetAssetManager(long handle, AssetManager assetManager);
     private native boolean nativeInitialize(long handle, Surface surface);
     private native void    nativeSetParameters(long handle,
                                float slowH, float slowS, float slowV,
@@ -369,7 +370,6 @@ public class VulkanParticlesRenderer {
     private native void    nativeSetTouch(long handle, int index, float x, float y);
     private native void    nativeRender(long handle);
     private native void    nativeOnSurfaceChanged(long handle, int width, int height);
-    private native void    nativeSetAssetManager(long handle, AssetManager am);
     private native void    nativeResetAttractionPoints(long handle);
     private native void    nativeInitTesla369Pattern(long handle);
 }

@@ -502,6 +502,7 @@ void VulkanParticleEngine::onSurfaceChanged(int width, int height) {
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::createInstance() {
+    LOGI("createInstance: begin");
     VkApplicationInfo appInfo{};
     appInfo.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName   = "ParticleFlow";
@@ -522,12 +523,16 @@ void VulkanParticleEngine::createInstance() {
     createInfo.ppEnabledExtensionNames = extensions.data();
     createInfo.enabledLayerCount       = 0;
 
-    if (vkCreateInstance(&createInfo, nullptr, &instance_) != VK_SUCCESS) {
+    VkResult result = vkCreateInstance(&createInfo, nullptr, &instance_);
+    if (result != VK_SUCCESS) {
+        LOGE("vkCreateInstance failed: %d", result);
         throw std::runtime_error("Failed to create Vulkan instance");
     }
+    LOGI("createInstance: OK");
 }
 
 void VulkanParticleEngine::createSurface(ANativeWindow* window) {
+    LOGI("createSurface: begin");
     VkAndroidSurfaceCreateInfoKHR createInfo{};
     createInfo.sType  = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
     createInfo.window = window;
@@ -536,21 +541,42 @@ void VulkanParticleEngine::createSurface(ANativeWindow* window) {
         (PFN_vkCreateAndroidSurfaceKHR)vkGetInstanceProcAddr(
             instance_, "vkCreateAndroidSurfaceKHR");
 
-    if (!vkCreateAndroidSurfaceKHR ||
-        vkCreateAndroidSurfaceKHR(instance_, &createInfo, nullptr, &surface_)
-            != VK_SUCCESS) {
+    if (!vkCreateAndroidSurfaceKHR) {
+        LOGE("vkGetInstanceProcAddr(vkCreateAndroidSurfaceKHR) returned null");
+        throw std::runtime_error("Failed to resolve vkCreateAndroidSurfaceKHR");
+    }
+
+    VkResult result = vkCreateAndroidSurfaceKHR(instance_, &createInfo, nullptr, &surface_);
+    if (result != VK_SUCCESS) {
+        LOGE("vkCreateAndroidSurfaceKHR failed: %d", result);
         throw std::runtime_error("Failed to create Android surface");
     }
+    LOGI("createSurface: OK");
 }
 
 void VulkanParticleEngine::pickPhysicalDevice() {
+    LOGI("pickPhysicalDevice: begin");
     uint32_t count = 0;
     vkEnumeratePhysicalDevices(instance_, &count, nullptr);
-    if (count == 0) throw std::runtime_error("No Vulkan devices found");
+    LOGI("Vulkan physical devices found: %u", count);
+    if (count == 0) {
+        LOGE("No Vulkan physical devices found");
+        throw std::runtime_error("No Vulkan devices found");
+    }
 
     std::vector<VkPhysicalDevice> devices(count);
     vkEnumeratePhysicalDevices(instance_, &count, devices.data());
     physicalDevice_ = devices[0]; // Use first available
+
+    VkPhysicalDeviceProperties devProps;
+    vkGetPhysicalDeviceProperties(physicalDevice_, &devProps);
+    LOGI("GPU: %s", devProps.deviceName);
+    LOGI("  vendorID=%u  deviceID=%u  driverVersion=%u",
+         devProps.vendorID, devProps.deviceID, devProps.driverVersion);
+    LOGI("  apiVersion=%u.%u.%u",
+         VK_VERSION_MAJOR(devProps.apiVersion),
+         VK_VERSION_MINOR(devProps.apiVersion),
+         VK_VERSION_PATCH(devProps.apiVersion));
 
     // Find queue families
     uint32_t queueCount = 0;
@@ -562,9 +588,12 @@ void VulkanParticleEngine::pickPhysicalDevice() {
         if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) graphicsFamily_ = i;
         if (queues[i].queueFlags & VK_QUEUE_COMPUTE_BIT)  computeFamily_  = i;
     }
+    LOGI("pickPhysicalDevice: OK (graphicsFamily=%u, computeFamily=%u)",
+         graphicsFamily_, computeFamily_);
 }
 
 void VulkanParticleEngine::createLogicalDevice() {
+    LOGI("createLogicalDevice: begin");
     std::vector<VkDeviceQueueCreateInfo> queueInfos;
     float priority = 1.0f;
 
@@ -581,8 +610,17 @@ void VulkanParticleEngine::createLogicalDevice() {
         queueInfos.push_back(cq);
     }
 
+    // Check largePoints support before requesting it — not universal on mobile GPUs
+    VkPhysicalDeviceFeatures supportedFeatures{};
+    vkGetPhysicalDeviceFeatures(physicalDevice_, &supportedFeatures);
+
     VkPhysicalDeviceFeatures features{};
-    features.largePoints = VK_TRUE; // Needed for particle size > 1
+    if (supportedFeatures.largePoints) {
+        features.largePoints = VK_TRUE;
+        LOGI("largePoints: supported (particle size > 1 available)");
+    } else {
+        LOGI("largePoints: NOT supported on this GPU — particle size clamped to 1");
+    }
 
     std::vector<const char*> extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
@@ -594,13 +632,15 @@ void VulkanParticleEngine::createLogicalDevice() {
     createInfo.enabledExtensionCount   = (uint32_t)extensions.size();
     createInfo.ppEnabledExtensionNames = extensions.data();
 
-    if (vkCreateDevice(physicalDevice_, &createInfo, nullptr, &device_)
-            != VK_SUCCESS) {
+    VkResult result = vkCreateDevice(physicalDevice_, &createInfo, nullptr, &device_);
+    if (result != VK_SUCCESS) {
+        LOGE("vkCreateDevice failed: %d", result);
         throw std::runtime_error("Failed to create logical device");
     }
 
     vkGetDeviceQueue(device_, graphicsFamily_, 0, &graphicsQueue_);
     vkGetDeviceQueue(device_, computeFamily_,  0, &computeQueue_);
+    LOGI("createLogicalDevice: OK");
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -608,13 +648,19 @@ void VulkanParticleEngine::createLogicalDevice() {
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::createSwapchain() {
+    LOGI("createSwapchain: begin");
     VkSurfaceCapabilitiesKHR caps;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice_, surface_, &caps);
+    LOGI("Surface caps: minImages=%u maxImages=%u currentExtent=%ux%u compositeAlphaFlags=0x%x",
+         caps.minImageCount, caps.maxImageCount,
+         caps.currentExtent.width, caps.currentExtent.height,
+         caps.supportedCompositeAlpha);
 
     uint32_t formatCount;
     vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice_, surface_, &formatCount, nullptr);
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
     vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice_, surface_, &formatCount, formats.data());
+    LOGI("Surface formats available: %u", formatCount);
 
     swapchainFormat_ = formats[0].format;
     for (auto& f : formats) {
@@ -624,6 +670,7 @@ void VulkanParticleEngine::createSwapchain() {
             break;
         }
     }
+    LOGI("Swapchain format selected: %d", swapchainFormat_);
 
     swapchainExtent_ = caps.currentExtent;
     if (swapchainExtent_.width == UINT32_MAX) {
@@ -631,9 +678,28 @@ void VulkanParticleEngine::createSwapchain() {
     }
     width_  = swapchainExtent_.width;
     height_ = swapchainExtent_.height;
+    LOGI("Swapchain extent: %ux%u", width_, height_);
 
     uint32_t imageCount = caps.minImageCount + 1;
     if (caps.maxImageCount > 0) imageCount = std::min(imageCount, caps.maxImageCount);
+
+    // Select compositeAlpha: prefer INHERIT but fall back to OPAQUE if unsupported
+    VkCompositeAlphaFlagBitsKHR compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    if (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {
+        compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+        LOGI("compositeAlpha: INHERIT");
+    } else if (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) {
+        LOGI("compositeAlpha: OPAQUE (INHERIT not supported on this device)");
+    } else {
+        // Use whatever is available
+        for (uint32_t bit = 1; bit <= 8; bit <<= 1) {
+            if (caps.supportedCompositeAlpha & bit) {
+                compositeAlpha = (VkCompositeAlphaFlagBitsKHR)bit;
+                LOGI("compositeAlpha: fallback to 0x%x", bit);
+                break;
+            }
+        }
+    }
 
     VkSwapchainCreateInfoKHR createInfo{};
     createInfo.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -646,18 +712,20 @@ void VulkanParticleEngine::createSwapchain() {
     createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     createInfo.preTransform     = caps.currentTransform;
-    createInfo.compositeAlpha   = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+    createInfo.compositeAlpha   = compositeAlpha;
     createInfo.presentMode      = VK_PRESENT_MODE_FIFO_KHR;
     createInfo.clipped          = VK_TRUE;
 
-    if (vkCreateSwapchainKHR(device_, &createInfo, nullptr, &swapchain_)
-            != VK_SUCCESS) {
+    VkResult result = vkCreateSwapchainKHR(device_, &createInfo, nullptr, &swapchain_);
+    if (result != VK_SUCCESS) {
+        LOGE("vkCreateSwapchainKHR failed: %d", result);
         throw std::runtime_error("Failed to create swapchain");
     }
 
     vkGetSwapchainImagesKHR(device_, swapchain_, &imageCount, nullptr);
     swapchainImages_.resize(imageCount);
     vkGetSwapchainImagesKHR(device_, swapchain_, &imageCount, swapchainImages_.data());
+    LOGI("vkCreateSwapchainKHR: OK, imageCount=%u", imageCount);
 
     // Create image views
     swapchainImageViews_.resize(imageCount);
@@ -670,8 +738,13 @@ void VulkanParticleEngine::createSwapchain() {
         viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
         viewInfo.subresourceRange.levelCount     = 1;
         viewInfo.subresourceRange.layerCount     = 1;
-        vkCreateImageView(device_, &viewInfo, nullptr, &swapchainImageViews_[i]);
+        VkResult viewResult = vkCreateImageView(device_, &viewInfo, nullptr, &swapchainImageViews_[i]);
+        if (viewResult != VK_SUCCESS) {
+            LOGE("vkCreateImageView[%u] failed: %d", i, viewResult);
+            throw std::runtime_error("Failed to create swapchain image view");
+        }
     }
+    LOGI("createSwapchain: OK");
 }
 
 void VulkanParticleEngine::recreateSwapchain() {
@@ -700,6 +773,7 @@ void VulkanParticleEngine::cleanupSwapchain() {
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::createRenderPass() {
+    LOGI("createRenderPass: begin");
     VkAttachmentDescription attachment{};
     attachment.format         = swapchainFormat_;
     attachment.samples        = VK_SAMPLE_COUNT_1_BIT;
@@ -724,12 +798,16 @@ void VulkanParticleEngine::createRenderPass() {
     rpInfo.subpassCount    = 1;
     rpInfo.pSubpasses      = &subpass;
 
-    if (vkCreateRenderPass(device_, &rpInfo, nullptr, &renderPass_) != VK_SUCCESS) {
+    VkResult result = vkCreateRenderPass(device_, &rpInfo, nullptr, &renderPass_);
+    if (result != VK_SUCCESS) {
+        LOGE("vkCreateRenderPass failed: %d", result);
         throw std::runtime_error("Failed to create render pass");
     }
+    LOGI("createRenderPass: OK");
 }
 
 void VulkanParticleEngine::createFramebuffers() {
+    LOGI("createFramebuffers: begin (%zu views)", swapchainImageViews_.size());
     framebuffers_.resize(swapchainImageViews_.size());
     for (size_t i = 0; i < swapchainImageViews_.size(); i++) {
         VkFramebufferCreateInfo fbInfo{};
@@ -740,8 +818,13 @@ void VulkanParticleEngine::createFramebuffers() {
         fbInfo.width           = swapchainExtent_.width;
         fbInfo.height          = swapchainExtent_.height;
         fbInfo.layers          = 1;
-        vkCreateFramebuffer(device_, &fbInfo, nullptr, &framebuffers_[i]);
+        VkResult result = vkCreateFramebuffer(device_, &fbInfo, nullptr, &framebuffers_[i]);
+        if (result != VK_SUCCESS) {
+            LOGE("vkCreateFramebuffer[%zu] failed: %d", i, result);
+            throw std::runtime_error("Failed to create framebuffer");
+        }
     }
+    LOGI("createFramebuffers: OK");
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -843,6 +926,7 @@ uint32_t VulkanParticleEngine::findMemoryType(
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::createComputeDescriptors() {
+    LOGI("createComputeDescriptors: begin");
     // Layout: 4 storage buffers (position, velocity, color, touch)
     std::vector<VkDescriptorSetLayoutBinding> bindings(4);
     for (uint32_t i = 0; i < 4; i++) {
@@ -856,8 +940,12 @@ void VulkanParticleEngine::createComputeDescriptors() {
     layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layoutInfo.bindingCount = (uint32_t)bindings.size();
     layoutInfo.pBindings    = bindings.data();
-    vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr,
+    VkResult result = vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr,
         &computeDescriptorSetLayout_);
+    if (result != VK_SUCCESS) {
+        LOGE("vkCreateDescriptorSetLayout failed: %d", result);
+        throw std::runtime_error("Failed to create descriptor set layout");
+    }
 
     // Descriptor pool
     VkDescriptorPoolSize poolSize{};
@@ -869,7 +957,11 @@ void VulkanParticleEngine::createComputeDescriptors() {
     poolInfo.maxSets       = 1;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes    = &poolSize;
-    vkCreateDescriptorPool(device_, &poolInfo, nullptr, &computeDescriptorPool_);
+    result = vkCreateDescriptorPool(device_, &poolInfo, nullptr, &computeDescriptorPool_);
+    if (result != VK_SUCCESS) {
+        LOGE("vkCreateDescriptorPool failed: %d", result);
+        throw std::runtime_error("Failed to create descriptor pool");
+    }
 
     // Allocate descriptor set
     VkDescriptorSetAllocateInfo allocInfo{};
@@ -877,7 +969,11 @@ void VulkanParticleEngine::createComputeDescriptors() {
     allocInfo.descriptorPool     = computeDescriptorPool_;
     allocInfo.descriptorSetCount = 1;
     allocInfo.pSetLayouts        = &computeDescriptorSetLayout_;
-    vkAllocateDescriptorSets(device_, &allocInfo, &computeDescriptorSet_);
+    result = vkAllocateDescriptorSets(device_, &allocInfo, &computeDescriptorSet_);
+    if (result != VK_SUCCESS) {
+        LOGE("vkAllocateDescriptorSets failed: %d", result);
+        throw std::runtime_error("Failed to allocate descriptor set");
+    }
 
     // Write buffer descriptors
     VkBuffer buffers[] = {positionBuffer_, velocityBuffer_, colorBuffer_, touchBuffer_};
@@ -903,6 +999,7 @@ void VulkanParticleEngine::createComputeDescriptors() {
         writes[i].pBufferInfo     = &bufInfos[i];
     }
     vkUpdateDescriptorSets(device_, 4, writes.data(), 0, nullptr);
+    LOGI("createComputeDescriptors: OK");
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -910,10 +1007,18 @@ void VulkanParticleEngine::createComputeDescriptors() {
 // ═══════════════════════════════════════════════════════════════
 
 VkShaderModule VulkanParticleEngine::loadShader(const std::string& path) {
+    LOGI("loadShader: %s", path.c_str());
+    // Validate asset manager — must be set via setAssetManager() before initialize()
+    if (!assetManager_) {
+        LOGE("loadShader: assetManager_ is null! Call nativeSetAssetManager before nativeInitialize");
+        throw std::runtime_error("Asset manager not set — cannot load shader: " + path);
+    }
     // Load precompiled SPIR-V from assets
-    AAssetManager* assetMgr = assetManager_;
-    AAsset* asset = AAssetManager_open(assetMgr, path.c_str(), AASSET_MODE_BUFFER);
-    if (!asset) throw std::runtime_error("Failed to open shader: " + path);
+    AAsset* asset = AAssetManager_open(assetManager_, path.c_str(), AASSET_MODE_BUFFER);
+    if (!asset) {
+        LOGE("loadShader: AAssetManager_open('%s') returned null", path.c_str());
+        throw std::runtime_error("Failed to open shader: " + path);
+    }
 
     size_t size = AAsset_getLength(asset);
     std::vector<char> code(size);
@@ -926,14 +1031,17 @@ VkShaderModule VulkanParticleEngine::loadShader(const std::string& path) {
     createInfo.pCode    = reinterpret_cast<const uint32_t*>(code.data());
 
     VkShaderModule shaderModule;
-    if (vkCreateShaderModule(device_, &createInfo, nullptr, &shaderModule)
-            != VK_SUCCESS) {
+    VkResult smResult = vkCreateShaderModule(device_, &createInfo, nullptr, &shaderModule);
+    if (smResult != VK_SUCCESS) {
+        LOGE("vkCreateShaderModule(%s) failed: %d", path.c_str(), smResult);
         throw std::runtime_error("Failed to create shader module: " + path);
     }
+    LOGI("loadShader: OK (%zu bytes)", size);
     return shaderModule;
 }
 
 void VulkanParticleEngine::createComputePipelines() {
+    LOGI("createComputePipelines: begin");
     // Pipeline layout with push constants
     VkPushConstantRange pushRange{};
     pushRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -946,7 +1054,11 @@ void VulkanParticleEngine::createComputePipelines() {
     layoutInfo.pSetLayouts            = &computeDescriptorSetLayout_;
     layoutInfo.pushConstantRangeCount = 1;
     layoutInfo.pPushConstantRanges    = &pushRange;
-    vkCreatePipelineLayout(device_, &layoutInfo, nullptr, &computePipelineLayout_);
+    VkResult result = vkCreatePipelineLayout(device_, &layoutInfo, nullptr, &computePipelineLayout_);
+    if (result != VK_SUCCESS) {
+        LOGE("vkCreatePipelineLayout (compute) failed: %d", result);
+        throw std::runtime_error("Failed to create compute pipeline layout");
+    }
 
     auto createPipeline = [&](const std::string& shaderPath, VkPipeline& pipeline) {
         VkShaderModule shader = loadShader(shaderPath);
@@ -961,17 +1073,25 @@ void VulkanParticleEngine::createComputePipelines() {
         pipelineInfo.sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
         pipelineInfo.stage  = stage;
         pipelineInfo.layout = computePipelineLayout_;
-        vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipelineInfo,
+        VkResult r = vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipelineInfo,
             nullptr, &pipeline);
+        if (r != VK_SUCCESS) {
+            LOGE("vkCreateComputePipelines(%s) failed: %d", shaderPath.c_str(), r);
+            vkDestroyShaderModule(device_, shader, nullptr);
+            throw std::runtime_error("Failed to create compute pipeline: " + shaderPath);
+        }
 
         vkDestroyShaderModule(device_, shader, nullptr);
+        LOGI("Compute pipeline OK: %s", shaderPath.c_str());
     };
 
     createPipeline("shaders/particle_init.spv",   computePipelineInit_);
     createPipeline("shaders/particle_update.spv", computePipeline_);
+    LOGI("createComputePipelines: OK");
 }
 
 void VulkanParticleEngine::createGraphicsPipeline() {
+    LOGI("createGraphicsPipeline: begin");
     VkShaderModule vertShader = loadShader("shaders/particle_render.vert.spv");
     VkShaderModule fragShader = loadShader("shaders/particle_render.frag.spv");
 
@@ -1064,8 +1184,14 @@ void VulkanParticleEngine::createGraphicsPipeline() {
     pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.pushConstantRangeCount = 1;
     pipelineLayoutInfo.pPushConstantRanges    = &gPushRange;
-    vkCreatePipelineLayout(device_, &pipelineLayoutInfo, nullptr,
+    VkResult layoutResult = vkCreatePipelineLayout(device_, &pipelineLayoutInfo, nullptr,
         &graphicsPipelineLayout_);
+    if (layoutResult != VK_SUCCESS) {
+        LOGE("vkCreatePipelineLayout (graphics) failed: %d", layoutResult);
+        vkDestroyShaderModule(device_, vertShader, nullptr);
+        vkDestroyShaderModule(device_, fragShader, nullptr);
+        throw std::runtime_error("Failed to create graphics pipeline layout");
+    }
 
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1081,11 +1207,18 @@ void VulkanParticleEngine::createGraphicsPipeline() {
     pipelineInfo.renderPass          = renderPass_;
     pipelineInfo.subpass             = 0;
 
-    vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipelineInfo,
+    VkResult pipeResult = vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipelineInfo,
         nullptr, &graphicsPipeline_);
+    if (pipeResult != VK_SUCCESS) {
+        LOGE("vkCreateGraphicsPipelines failed: %d", pipeResult);
+        vkDestroyShaderModule(device_, vertShader, nullptr);
+        vkDestroyShaderModule(device_, fragShader, nullptr);
+        throw std::runtime_error("Failed to create graphics pipeline");
+    }
 
     vkDestroyShaderModule(device_, vertShader, nullptr);
     vkDestroyShaderModule(device_, fragShader, nullptr);
+    LOGI("createGraphicsPipeline: OK");
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1093,11 +1226,17 @@ void VulkanParticleEngine::createGraphicsPipeline() {
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::createCommandPool() {
+    LOGI("createCommandPool: begin");
     VkCommandPoolCreateInfo poolInfo{};
     poolInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     poolInfo.queueFamilyIndex = graphicsFamily_;
     poolInfo.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    vkCreateCommandPool(device_, &poolInfo, nullptr, &commandPool_);
+    VkResult result = vkCreateCommandPool(device_, &poolInfo, nullptr, &commandPool_);
+    if (result != VK_SUCCESS) {
+        LOGE("vkCreateCommandPool failed: %d", result);
+        throw std::runtime_error("Failed to create command pool");
+    }
+    LOGI("createCommandPool: OK");
 }
 
 void VulkanParticleEngine::createCommandBuffers() {
@@ -1111,15 +1250,22 @@ void VulkanParticleEngine::createCommandBuffers() {
 }
 
 void VulkanParticleEngine::createSyncObjects() {
+    LOGI("createSyncObjects: begin");
     VkSemaphoreCreateInfo semInfo{};
     semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    vkCreateSemaphore(device_, &semInfo, nullptr, &imageAvailableSemaphore_);
-    vkCreateSemaphore(device_, &semInfo, nullptr, &renderFinishedSemaphore_);
+    VkResult r1 = vkCreateSemaphore(device_, &semInfo, nullptr, &imageAvailableSemaphore_);
+    VkResult r2 = vkCreateSemaphore(device_, &semInfo, nullptr, &renderFinishedSemaphore_);
 
     VkFenceCreateInfo fenceInfo{};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    vkCreateFence(device_, &fenceInfo, nullptr, &inFlightFence_);
+    VkResult r3 = vkCreateFence(device_, &fenceInfo, nullptr, &inFlightFence_);
+
+    if (r1 != VK_SUCCESS || r2 != VK_SUCCESS || r3 != VK_SUCCESS) {
+        LOGE("Sync objects failed: imageAvailSem=%d renderFinSem=%d fence=%d", r1, r2, r3);
+        throw std::runtime_error("Failed to create sync objects");
+    }
+    LOGI("createSyncObjects: OK");
 }
 
 VkCommandBuffer VulkanParticleEngine::beginSingleTimeCommands() {
