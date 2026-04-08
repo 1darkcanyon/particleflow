@@ -251,7 +251,8 @@ void VulkanParticleEngine::initTesla369Pattern() {
 void VulkanParticleEngine::setTouch(int index, float x, float y) {
     if (index < 0 || index >= MAX_TOUCH_POINTS) return;
     touchPositions_[index] = {x, y};
-    updateTouchBuffer();
+    // Do NOT call updateTouchBuffer() here — this may be called from any thread.
+    // GPU upload is batched once per frame at the top of updateParticles() (render thread only).
 }
 
 void VulkanParticleEngine::resetAttractionPoints() {
@@ -269,8 +270,8 @@ void VulkanParticleEngine::resetAttractionPoints() {
 // DEFAULT ATTRACTION POINTS
 // Matches original ParticlesRenderer.java resetAttractionPoints():
 //   l = min(w,h)/3; points[0] at (cx, cy+l); remaining evenly on circle.
-// Coordinates are in Android screen space (Y=0 at top) — no Y-flip needed
-// because Vulkan vertex shader also maps Y=0 to the top of the screen.
+// Coordinates are in particle/OpenGL space (y=0 at bottom), matching the original
+// RenderScript kernel. Vertex shader negates Y so y=0 displays at bottom of screen.
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::setDefaultAttractionPoints() {
@@ -311,6 +312,9 @@ void VulkanParticleEngine::updateTouchBuffer() {
 
 void VulkanParticleEngine::updateParticles() {
     if (!initialized_) return;
+
+    // Upload any pending touch position changes to GPU (render thread — safe sync point).
+    updateTouchBuffer();
 
     VkCommandBuffer cmd = beginSingleTimeCommands();
 

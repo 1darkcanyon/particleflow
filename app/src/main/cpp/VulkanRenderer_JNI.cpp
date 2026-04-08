@@ -287,14 +287,11 @@ Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeResetAttractionPoin
         return;
     }
     
-    // Reset all touch points to disabled (-1, -1)
-    // You'll need to get numTouchPoints from engine
-    // For now, assume max of 16
-    for (uint32_t i = 0; i < 16; i++) {
-        engine->setTouch(i, -1.0f, -1.0f);
-    }
-    
-    LOGI("All attraction points reset");
+    // Restore the default circle of attraction points (sets circle when dimensions are known,
+    // otherwise clears all to disabled). Matches original resetAttractionPoints() behavior.
+    engine->resetAttractionPoints();
+
+    LOGI("Attraction points reset to default circle");
 }
 
 } // extern "C"
