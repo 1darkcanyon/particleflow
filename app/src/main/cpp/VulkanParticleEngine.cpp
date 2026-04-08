@@ -78,7 +78,7 @@ VulkanParticleEngine::VulkanParticleEngine()
     params_.fastV      = 1.0f;
     params_.hueDir     = 0;
     params_.attract    = 100.0f;
-    params_.drag       = 0.96f;
+    params_.drag       = 1.0f;   // 1.0 = no drag (matches UI default 0 → 1.0 - 0/999)
     params_.width      = 1.0f;
     params_.height     = 1.0f;
     params_.numPart    = numParticles_;
@@ -234,9 +234,9 @@ void VulkanParticleEngine::initTesla369Pattern() {
         };
     }
 
-    // Set Tesla defaults
+    // Set Tesla defaults — drag 1.0 = no drag (velocity fully preserved)
     params_.attract  = 28.0f;
-    params_.drag     = 0.0f;
+    params_.drag     = 1.0f;
     numParticles_    = 432000;
 
     updateTouchBuffer();

@@ -214,9 +214,9 @@ public class VulkanParticlesRenderer {
         float[] slowHSV = rgbToHSV(slowR, slowG, slowB);
         float[] fastHSV = rgbToHSV(fastR, fastG, fastB);
 
-        // Convert drag: matches original RenderScript — stored as integer 0-100,
-        // converted as 1.0 - (dragPct / 100.0). Default 4 → 0.96 drag coef.
-        // Clamp to 100 so values above 100 don't produce negative (invalid) coefficients.
+        // Original RenderScript: *d *= f01DragCoef — 1.0 = no drag, 0.0 = full drag (velocity zeroed).
+        // UI drag = 0 → dragCoef = 1.0 (preserve velocity). UI drag = 100 → dragCoef = 0.0 (stop).
+        // Clamp to 100 so UI values above 100 never produce a negative coefficient.
         float dragCoef = 1.0f - (Math.min(dragPct, 100) / 100.0f);
 
         // Attraction: use directly (0-500 scale)
