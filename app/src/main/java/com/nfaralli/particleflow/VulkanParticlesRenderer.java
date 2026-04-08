@@ -216,7 +216,8 @@ public class VulkanParticlesRenderer {
 
         // Convert drag: matches original RenderScript — stored as integer 0-100,
         // converted as 1.0 - (dragPct / 100.0). Default 4 → 0.96 drag coef.
-        float dragCoef = 1.0f - (dragPct / 100.0f);
+        // Clamp to 100 so values above 100 don't produce negative (invalid) coefficients.
+        float dragCoef = 1.0f - (Math.min(dragPct, 100) / 100.0f);
 
         // Attraction: use directly (0-500 scale)
         float attractCoef = attractionPct;
