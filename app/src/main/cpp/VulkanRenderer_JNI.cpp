@@ -135,7 +135,9 @@ Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeSetParameters(
     
     // Set parameters
     engine->setParameters(params.slowH, params.slowS, params.slowV, params.fastH, params.fastS, params.fastV, params.hueDir, params.attract, params.drag, params.width, params.height, params.numPart, params.numTouch, params.partSize, params.bgColor);
-    
+
+    __android_log_print(ANDROID_LOG_DEBUG, "ParticleFlow", "f01DragCoef = %f", (float)drag);
+
     LOGI("Parameters set: %d particles, %d touch points, attraction=%.1f, drag=%.3f",
          numPart, numTouch, attract, drag);
 }
