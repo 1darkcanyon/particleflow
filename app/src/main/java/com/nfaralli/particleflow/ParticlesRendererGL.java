@@ -8,7 +8,8 @@ import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.Random;
 public class ParticlesRendererGL implements GLSurfaceView.Renderer {
-    private static final int NUM_PARTICLES = 16384;
+    private static final int MAX_PARTICLES = 4_000_000;
+    private int numParticles = 2_000_000;
     private static final int FLOAT_SIZE = 4;
 
     private FloatBuffer positionBuffer, deltaBuffer;
@@ -96,10 +97,10 @@ public class ParticlesRendererGL implements GLSurfaceView.Renderer {
     }
     private void initParticles() {
         Random rand = new Random();
-        float[] positions = new float[NUM_PARTICLES * 2];
-        float[] deltas = new float[NUM_PARTICLES * 2];
+        float[] positions = new float[numParticles * 2];
+        float[] deltas = new float[numParticles * 2];
         float radius = (float) Math.sqrt(width * width + height * height) / 2;
-        for (int i = 0; i < NUM_PARTICLES; i++) {
+        for (int i = 0; i < numParticles; i++) {
             float r = radius * (float) Math.sqrt(rand.nextFloat());
             float theta = (float) (rand.nextFloat() * 6.28318530718f);
             positions[i*2] = (width/2) + r * (float)Math.cos(theta);
@@ -138,7 +139,7 @@ public class ParticlesRendererGL implements GLSurfaceView.Renderer {
         GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "u_slowVal"), slowVal);
         GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "u_fastVal"), fastVal);
 
-        GLES20.glDrawArrays(GLES20.GL_POINTS, 0, NUM_PARTICLES);
+        GLES20.glDrawArrays(GLES20.GL_POINTS, 0, numParticles);
     }
     @Override
     public void onSurfaceChanged(GL10 gl, int w, int h) {
