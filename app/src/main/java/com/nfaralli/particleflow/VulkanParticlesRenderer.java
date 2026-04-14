@@ -38,7 +38,7 @@ public class VulkanParticlesRenderer {
     public static final String KEY_DRAG           = "drag";
 
     // ── DEFAULTS (confirmed from original particleflow.rs source) ─
-    public static final int   DEFAULT_NUM_PARTICLES = 50000;
+    public static final int   DEFAULT_NUM_PARTICLES = 1500000;
     public static final int   DEFAULT_PARTICLE_SIZE = 1;
     public static final int   DEFAULT_NUM_TOUCH      = 6;
     public static final int   DEFAULT_BG_R           = 0;
