@@ -37,22 +37,22 @@ public class VulkanParticlesRenderer {
     public static final String KEY_ATTRACT        = "attraction";
     public static final String KEY_DRAG           = "drag";
 
-    // ── DEFAULTS (confirmed from original particleflow.rs source) ─
+    // ── DEFAULTS ──────────────────────────────────────────────
     public static final int   DEFAULT_NUM_PARTICLES = 1500000;
     public static final int   DEFAULT_PARTICLE_SIZE = 1;
     public static final int   DEFAULT_NUM_TOUCH      = 6;
     public static final int   DEFAULT_BG_R           = 0;
     public static final int   DEFAULT_BG_G           = 0;
     public static final int   DEFAULT_BG_B           = 0;
-    public static final int   DEFAULT_SLOW_R         = 76;   // #4C4CFF
-    public static final int   DEFAULT_SLOW_G         = 76;
-    public static final int   DEFAULT_SLOW_B         = 255;
-    public static final int   DEFAULT_FAST_R         = 255;  // #FF4C4C
-    public static final int   DEFAULT_FAST_G         = 76;
-    public static final int   DEFAULT_FAST_B         = 76;
-    public static final int   DEFAULT_HUE_DIR        = 0;
-    public static final int   DEFAULT_ATTRACT        = 100;
-    public static final int   DEFAULT_DRAG           = 4;    // 4% → 0.96 drag coef
+    public static final int   DEFAULT_SLOW_R         = 1;    // canyon blue dark
+    public static final int   DEFAULT_SLOW_G         = 52;
+    public static final int   DEFAULT_SLOW_B         = 104;
+    public static final int   DEFAULT_FAST_R         = 153;  // canyon blue light
+    public static final int   DEFAULT_FAST_G         = 206;
+    public static final int   DEFAULT_FAST_B         = 255;
+    public static final int   DEFAULT_HUE_DIR        = 0;    // Clockwise
+    public static final int   DEFAULT_ATTRACT        = 28;
+    public static final int   DEFAULT_DRAG           = 0;
     public static final int   MAX_PARTICLES          = 4000000;
     public static final int   MAX_TOUCH_POINTS       = 16;
 
@@ -74,11 +74,10 @@ public class VulkanParticlesRenderer {
     private int   attractionPct;
     private int   dragPct;
 
-    // Touch tracking — pending positions written by touch thread, flushed by render thread.
-    // No frame-counter drain: points live until ACTION_UP explicitly releases them.
-    private final float[] touchX = new float[MAX_TOUCH_POINTS];
-    private final float[] touchY = new float[MAX_TOUCH_POINTS];
-    private volatile boolean touchDirty = false;
+    // Touch tracking
+    private float[] touchX;
+    private float[] touchY;
+    private int[]   touchCounter;
 
     static {
         System.loadLibrary("particleflow");
@@ -90,6 +89,9 @@ public class VulkanParticlesRenderer {
         this.context = context;
         nativeHandle = nativeCreate();
         loadPreferences();
+        touchX       = new float[MAX_TOUCH_POINTS];
+        touchY       = new float[MAX_TOUCH_POINTS];
+        touchCounter = new int[MAX_TOUCH_POINTS];
         resetTouchPoints();
     }
 
@@ -126,23 +128,15 @@ public class VulkanParticlesRenderer {
     // ── FRAME LOOP ────────────────────────────────────────────
 
     /**
-     * Called every frame from the render thread.
-     * 1. Flush any pending touch changes to the GPU (staging buffer pattern — FIX 5)
+     * Called every frame.
+     * 1. Tick touch counters (deactivate stale points)
      * 2. Dispatch compute shader (physics update)
      * 3. Render particles
      */
     public void drawFrame() {
         if (!initialized || nativeHandle == 0) return;
 
-        // Flush pending touch positions on render thread — avoids touch/GPU race condition.
-        // Touch events write to touchX/Y arrays (any thread); only the render thread
-        // forwards them to the native layer and triggers the GPU staging upload.
-        if (touchDirty) {
-            touchDirty = false;
-            for (int i = 0; i < numTouchPoints; i++) {
-                nativeSetTouch(nativeHandle, i, touchX[i], touchY[i]);
-            }
-        }
+        tickTouchCounters();
         nativeUpdateParticles(nativeHandle);
         nativeRender(nativeHandle);
     }
@@ -150,33 +144,49 @@ public class VulkanParticlesRenderer {
     // ── TOUCH HANDLING ────────────────────────────────────────
 
     /**
-     * Activate or move a touch point. Index = pointer ID.
-     * Y is flipped from Android screen space (y=0 top) to particle space (y=0 bottom),
-     * matching the original app: touchPos[y] = mHeight - rawY.
-     * Actual GPU upload is deferred to the render thread (drawFrame → nativeSetTouch loop).
+     * Activate a touch point. Index = pointer ID.
+     * Matches original app behavior exactly.
      */
     public void setTouchPoint(int index, float x, float y) {
         if (index < 0 || index >= numTouchPoints) return;
-        touchX[index] = x;
-        touchY[index] = height > 0 ? (height - y) : y;  // FIX 3: flip Y to match particle coords
-        touchDirty    = true;
+        touchX[index]       = x;
+        touchY[index]       = y;
+        touchCounter[index] = 180; // Stay alive for 180 frames (~3 seconds at 60fps) after lift
+        nativeSetTouch(nativeHandle, index, x, y);
     }
 
     /**
-     * Deactivate a touch point immediately on ACTION_UP / ACTION_POINTER_UP.
-     * No frame-counter drain — points disappear the moment the finger lifts.
+     * Called on pointer up — don't deactivate immediately,
+     * let tickTouchCounters drain the counter.
+     * Matches original "3 consecutive events" behavior.
      */
     public void releaseTouchPoint(int index) {
         if (index < 0 || index >= numTouchPoints) return;
-        touchX[index] = -1.0f;
-        touchY[index] = -1.0f;
-        touchDirty    = true;
+        // Counter will drain to 0 over next frames
+    }
+
+    /**
+     * Tick all touch counters. Deactivate when counter reaches 0.
+     * Replicates original RenderScript touchPoint deactivation.
+     */
+    private void tickTouchCounters() {
+        for (int i = 0; i < numTouchPoints; i++) {
+            if (touchCounter[i] > 0) {
+                touchCounter[i]--;
+                if (touchCounter[i] == 0) {
+                    // Deactivate with negative coords
+                    nativeSetTouch(nativeHandle, i, -1.0f, -1.0f);
+                }
+            }
+        }
     }
 
     private void resetTouchPoints() {
-        java.util.Arrays.fill(touchX, -1.0f);
-        java.util.Arrays.fill(touchY, -1.0f);
-        touchDirty = true;
+        for (int i = 0; i < MAX_TOUCH_POINTS; i++) {
+            touchX[i]       = -1.0f;
+            touchY[i]       = -1.0f;
+            touchCounter[i] = 0;
+        }
         if (nativeHandle != 0) {
             nativeResetAttractionPoints(nativeHandle);
         }
@@ -204,10 +214,9 @@ public class VulkanParticlesRenderer {
         float[] slowHSV = rgbToHSV(slowR, slowG, slowB);
         float[] fastHSV = rgbToHSV(fastR, fastG, fastB);
 
-        // Original RenderScript: *d *= f01DragCoef — 1.0 = no drag, 0.0 = full drag (velocity zeroed).
-        // UI drag = 0 → dragCoef = 1.0 (preserve velocity). UI drag = 100 → dragCoef = 0.0 (stop).
-        // Clamp to 100 so UI values above 100 never produce a negative coefficient.
-        float dragCoef = 1.0f - (Math.min(dragPct, 100) / 100.0f);
+        // Convert drag: matches original RenderScript — stored as integer 0-100,
+        // converted as 1.0 - (dragPct / 100.0). Default 4 → 0.96 drag coef.
+        float dragCoef = 1.0f - (dragPct / 100.0f);
 
         // Attraction: use directly (0-500 scale)
         float attractCoef = attractionPct;
