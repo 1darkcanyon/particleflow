@@ -44,6 +44,7 @@ public class VulkanParticlesRenderer {
     public static final int   DEFAULT_BG_R           = 0;
     public static final int   DEFAULT_BG_G           = 0;
     public static final int   DEFAULT_BG_B           = 0;
+<<<<<<< HEAD
     public static final int   DEFAULT_SLOW_R         = 1;    // canyon blue dark
     public static final int   DEFAULT_SLOW_G         = 52;
     public static final int   DEFAULT_SLOW_B         = 104;
@@ -54,6 +55,18 @@ public class VulkanParticlesRenderer {
     public static final int   DEFAULT_ATTRACT        = 100;  // f01AttractionCoef = 100.0f
     public static final int   DEFAULT_DRAG           = 4;    // f01DragCoef = 1.0 - 4/100 = 0.96f
     public static final int   MAX_PARTICLES          = 1000000;
+=======
+    public static final int   DEFAULT_SLOW_R         = 76;   // #4C4CFF
+    public static final int   DEFAULT_SLOW_G         = 76;
+    public static final int   DEFAULT_SLOW_B         = 255;
+    public static final int   DEFAULT_FAST_R         = 255;  // #FF4C4C
+    public static final int   DEFAULT_FAST_G         = 76;
+    public static final int   DEFAULT_FAST_B         = 76;
+    public static final int   DEFAULT_HUE_DIR        = 0;
+    public static final int   DEFAULT_ATTRACT        = 100;
+    public static final int   DEFAULT_DRAG           = 4;    // 4% → 0.96 drag coef
+    public static final int   MAX_PARTICLES          = 4000000;
+>>>>>>> 7b99ec3 (Increase MAX_PARTICLES from 1M to 4M)
     public static final int   MAX_TOUCH_POINTS       = 16;
 
     // ── STATE ─────────────────────────────────────────────────
