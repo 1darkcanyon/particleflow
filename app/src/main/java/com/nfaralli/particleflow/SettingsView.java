@@ -228,9 +228,9 @@ public class SettingsView extends Dialog {
         root.addView(etAttract);
 
         // ── DRAG ──────────────────────────────────────────────
-        root.addView(makeLabel(ctx, "Drag (0=none, 999=max)"));
+        root.addView(makeLabel(ctx, "Drag (0=none, 100=max)"));
         EditText etDrag = makeEditInt(ctx, dragPct);
-        etDrag.addTextChangedListener(new IntWatcher(0, 999) {
+        etDrag.addTextChangedListener(new IntWatcher(0, 100) {
             @Override void onValue(int v) { dragPct = v; }
         });
         root.addView(etDrag);

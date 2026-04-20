@@ -356,7 +356,10 @@ public class VulkanParticlesRenderer {
         v = slowHSV[2] + (fastHSV[2] - slowHSV[2]) * t;
 
         float[] rgb = hsvToRGB(h, s, v);
-        return Color.rgb((int)(rgb[0]*255), (int)(rgb[1]*255), (int)(rgb[2]*255));
+        return Color.rgb(
+            Math.min(255, Math.max(0, (int)(rgb[0]*255))),
+            Math.min(255, Math.max(0, (int)(rgb[1]*255))),
+            Math.min(255, Math.max(0, (int)(rgb[2]*255))));
     }
 
     /**

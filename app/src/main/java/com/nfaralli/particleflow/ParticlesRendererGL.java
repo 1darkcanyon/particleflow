@@ -60,12 +60,8 @@ public class ParticlesRendererGL implements GLSurfaceView.Renderer {
         "    return clamp(log(dot(v,v) + 1.0) / 4.5, 0.0, 1.0);\n" +
         "}\n" +
         "vec4 hsv2rgba(float h, float s, float v) {\n" +
-        "    float h6 = fract(h * 6.0);\n" +
-        "    float r = 1.0 - abs(h6 - 3.0) + 1.0;\n" +
-        "    float g = 2.0 - abs(h6 - 2.0);\n" +
-        "    float b = 1.0 - abs(h6 - 1.0);\n" +
-        "    float coef = v * s;\n" +
-        "    return vec4(v - coef * r, v - coef * g, v - coef * b, 1.0);\n" +
+        "    vec3 p = abs(fract(vec3(h, h + 2.0/3.0, h + 1.0/3.0)) * 6.0 - vec3(3.0));\n" +
+        "    return vec4(v * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), s), 1.0);\n" +
         "}\n" +
         "void main() {\n" +
         "    float coef = getSpeedCoef(v_Delta);\n" +
