@@ -11,7 +11,6 @@ public class ParticlesSurfaceView extends SurfaceView
         implements SurfaceHolder.Callback {
 
     private static final String TAG = "ParticleFlow";
-    private static final int MAX_NUM_PARTICLES = 2000000;
     private VulkanParticlesRenderer renderer;
     private RenderThread             renderThread;
     private volatile boolean         running = false;

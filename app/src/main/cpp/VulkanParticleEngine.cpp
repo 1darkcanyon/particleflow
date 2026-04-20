@@ -78,7 +78,7 @@ VulkanParticleEngine::VulkanParticleEngine()
     params_.fastV      = 1.0f;
     params_.hueDir     = 0;
     params_.attract    = 100.0f;
-    params_.drag       = 1.0f;   // 1.0 = no drag (matches UI default 0 → 1.0 - 0/999)
+    params_.drag       = 0.96f;
     params_.width      = 1.0f;
     params_.height     = 1.0f;
     params_.numPart    = numParticles_;
@@ -234,9 +234,9 @@ void VulkanParticleEngine::initTesla369Pattern() {
         };
     }
 
-    // Set Tesla defaults — drag 1.0 = no drag (velocity fully preserved)
+    // Set Tesla defaults
     params_.attract  = 28.0f;
-    params_.drag     = 1.0f;
+    params_.drag     = 0.0f;
     numParticles_    = 432000;
 
     updateTouchBuffer();
@@ -251,8 +251,7 @@ void VulkanParticleEngine::initTesla369Pattern() {
 void VulkanParticleEngine::setTouch(int index, float x, float y) {
     if (index < 0 || index >= MAX_TOUCH_POINTS) return;
     touchPositions_[index] = {x, y};
-    // Do NOT call updateTouchBuffer() here — this may be called from any thread.
-    // GPU upload is batched once per frame at the top of updateParticles() (render thread only).
+    updateTouchBuffer();
 }
 
 void VulkanParticleEngine::resetAttractionPoints() {
@@ -270,8 +269,8 @@ void VulkanParticleEngine::resetAttractionPoints() {
 // DEFAULT ATTRACTION POINTS
 // Matches original ParticlesRenderer.java resetAttractionPoints():
 //   l = min(w,h)/3; points[0] at (cx, cy+l); remaining evenly on circle.
-// Coordinates are in particle/OpenGL space (y=0 at bottom), matching the original
-// RenderScript kernel. Vertex shader negates Y so y=0 displays at bottom of screen.
+// Coordinates are in Android screen space (Y=0 at top) — no Y-flip needed
+// because Vulkan vertex shader also maps Y=0 to the top of the screen.
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::setDefaultAttractionPoints() {
@@ -312,9 +311,6 @@ void VulkanParticleEngine::updateTouchBuffer() {
 
 void VulkanParticleEngine::updateParticles() {
     if (!initialized_) return;
-
-    // Upload any pending touch position changes to GPU (render thread — safe sync point).
-    updateTouchBuffer();
 
     VkCommandBuffer cmd = beginSingleTimeCommands();
 
@@ -622,11 +618,8 @@ void VulkanParticleEngine::createSwapchain() {
 
     swapchainFormat_ = formats[0].format;
     for (auto& f : formats) {
-        // Prefer sRGB framebuffer to match original RenderScript color space handling.
-        // sRGB encoding is applied automatically by the GPU, matching the display pipeline
-        // expected by the original app. UNORM skips gamma and causes washed-out colors.
-        if (f.format == VK_FORMAT_R8G8B8A8_SRGB ||
-            f.format == VK_FORMAT_B8G8R8A8_SRGB) {
+        if (f.format == VK_FORMAT_R8G8B8A8_UNORM ||
+            f.format == VK_FORMAT_B8G8R8A8_UNORM) {
             swapchainFormat_ = f.format;
             break;
         }

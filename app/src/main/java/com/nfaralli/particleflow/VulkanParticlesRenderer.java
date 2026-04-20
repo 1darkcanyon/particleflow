@@ -37,22 +37,22 @@ public class VulkanParticlesRenderer {
     public static final String KEY_ATTRACT        = "attraction";
     public static final String KEY_DRAG           = "drag";
 
-    // ── DEFAULTS ──────────────────────────────────────────────
+    // ── DEFAULTS (match original app exactly) ─────────────────
     public static final int   DEFAULT_NUM_PARTICLES = 999999;
     public static final int   DEFAULT_PARTICLE_SIZE = 1;
-    public static final int   DEFAULT_NUM_TOUCH      = 6;
+    public static final int   DEFAULT_NUM_TOUCH      = 2;
     public static final int   DEFAULT_BG_R           = 0;
     public static final int   DEFAULT_BG_G           = 0;
     public static final int   DEFAULT_BG_B           = 0;
-    public static final int   DEFAULT_SLOW_R         = 1;    // canyon blue dark
-    public static final int   DEFAULT_SLOW_G         = 52;
-    public static final int   DEFAULT_SLOW_B         = 104;
-    public static final int   DEFAULT_FAST_R         = 153;  // canyon blue light
-    public static final int   DEFAULT_FAST_G         = 206;
-    public static final int   DEFAULT_FAST_B         = 255;
-    public static final int   DEFAULT_HUE_DIR        = 0;    // Clockwise
-    public static final int   DEFAULT_ATTRACT        = 28;
-    public static final int   DEFAULT_DRAG           = 0;
+    public static final int   DEFAULT_SLOW_R         = 76;   // #4C4CFF
+    public static final int   DEFAULT_SLOW_G         = 76;
+    public static final int   DEFAULT_SLOW_B         = 255;
+    public static final int   DEFAULT_FAST_R         = 255;  // #FF4C4C
+    public static final int   DEFAULT_FAST_G         = 76;
+    public static final int   DEFAULT_FAST_B         = 76;
+    public static final int   DEFAULT_HUE_DIR        = 0;
+    public static final int   DEFAULT_ATTRACT        = 100;
+    public static final int   DEFAULT_DRAG           = 4;    // 4% → 0.96 drag coef
     public static final int   MAX_PARTICLES          = 4000000;
     public static final int   MAX_TOUCH_POINTS       = 16;
 
@@ -216,7 +216,8 @@ public class VulkanParticlesRenderer {
 
         // Convert drag: matches original RenderScript — stored as integer 0-100,
         // converted as 1.0 - (dragPct / 100.0). Default 4 → 0.96 drag coef.
-        float dragCoef = 1.0f - (dragPct / 100.0f);
+        // Clamp to 100 so values above 100 don't produce negative (invalid) coefficients.
+        float dragCoef = 1.0f - (Math.min(dragPct, 100) / 100.0f);
 
         // Attraction: use directly (0-500 scale)
         float attractCoef = attractionPct;
@@ -356,10 +357,7 @@ public class VulkanParticlesRenderer {
         v = slowHSV[2] + (fastHSV[2] - slowHSV[2]) * t;
 
         float[] rgb = hsvToRGB(h, s, v);
-        return Color.rgb(
-            Math.min(255, Math.max(0, (int)(rgb[0]*255))),
-            Math.min(255, Math.max(0, (int)(rgb[1]*255))),
-            Math.min(255, Math.max(0, (int)(rgb[2]*255))));
+        return Color.rgb((int)(rgb[0]*255), (int)(rgb[1]*255), (int)(rgb[2]*255));
     }
 
     /**
