@@ -131,6 +131,9 @@ float getSpeedCoef(vec2 v) {
     return coef;
 }
 
+
+const float PHI = 1.6180339887498948;
+const float GOLDEN_ANG = 2.3999632297286533;
 void main() {
     uint index = gl_GlobalInvocationID.x;
     
@@ -187,8 +190,5 @@ void main() {
     // Write back updated state
     position[index] = pt;
     velocity[index] = vel;
-    // Drag LAST - exact RenderScript order
-    vel *= pc.f01DragCoef;
-
     color[index] = col;
 }
