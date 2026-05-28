@@ -1,13 +1,7 @@
 #version 450
 
-// Compute shader to update particle physics
-// Direct translation of RenderScript's updateParticles kernel
-
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-// Push constants — layout MUST match ComputePushConstants in VulkanParticleEngine.h exactly:
-//   uint32_t numParticles, numTouch; float attract, drag, width, height;
-//   float slowH,S,V; float fastH,S,V; int hueDir; uint32_t frameSeed;
 layout(push_constant) uniform PushConstants {
     uint  numParticles;
     uint  numTouchPoints;
@@ -25,170 +19,91 @@ layout(push_constant) uniform PushConstants {
     uint  randomSeed;
 } pc;
 
-// Buffer bindings — MUST match createComputeDescriptors() descriptor order:
-//   buffers[] = {positionBuffer_, velocityBuffer_, colorBuffer_, touchBuffer_}
-layout(std430, binding = 0) buffer PositionBuffer {
-    vec2 position[];
-};
+layout(std430, binding = 0) buffer PositionBuffer { vec2 position[]; };
+layout(std430, binding = 1) buffer VelocityBuffer { vec2 velocity[]; };
+layout(std430, binding = 2) buffer ColorBuffer    { vec4 color[];    };
+layout(std430, binding = 3) buffer TouchBuffer    { vec2 gTouch[];   };
 
-layout(std430, binding = 1) buffer VelocityBuffer {
-    vec2 velocity[];
-};
-
-layout(std430, binding = 2) buffer ColorBuffer {
-    vec4 color[];
-};
-
-layout(std430, binding = 3) buffer TouchBuffer {
-    vec2 gTouch[];
-};
-
-// Random number generation for collision avoidance
 uint hash(uint x) {
-    x += (x << 10u);
-    x ^= (x >> 6u);
-    x += (x << 3u);
-    x ^= (x >> 11u);
+    x += (x << 10u); x ^= (x >> 6u);
+    x += (x << 3u);  x ^= (x >> 11u);
     x += (x << 15u);
     return x;
 }
-
 float randomFloat(inout uint seed) {
     seed = hash(seed);
     return float(seed) / 4294967296.0;
 }
 
-// HSV to RGBA conversion (same as init shader)
 vec4 hsv2rgba(float h, float s, float v) {
     float h6 = 6.0 * h;
     float r, g, b;
-    
-    if (h6 < 1.0) {
-        r = 0.0;
-        g = 1.0 - h6;
-        b = 1.0;
-    } else if (h6 < 2.0) {
-        r = h6 - 1.0;
-        g = 0.0;
-        b = 1.0;
-    } else if (h6 < 3.0) {
-        r = 1.0;
-        g = 0.0;
-        b = 3.0 - h6;
-    } else if (h6 < 4.0) {
-        r = 1.0;
-        g = h6 - 3.0;
-        b = 0.0;
-    } else if (h6 < 5.0) {
-        r = 5.0 - h6;
-        g = 1.0;
-        b = 0.0;
-    } else {
-        r = 0.0;
-        g = 1.0;
-        b = h6 - 5.0;
-    }
-    
+    if      (h6 < 1.0) { r=0.0;      g=1.0-h6;  b=1.0;     }
+    else if (h6 < 2.0) { r=h6-1.0;   g=0.0;     b=1.0;     }
+    else if (h6 < 3.0) { r=1.0;      g=0.0;     b=3.0-h6;  }
+    else if (h6 < 4.0) { r=1.0;      g=h6-3.0;  b=0.0;     }
+    else if (h6 < 5.0) { r=5.0-h6;   g=1.0;     b=0.0;     }
+    else               { r=0.0;      g=1.0;     b=h6-5.0;  }
     float coef = v * s;
-    return vec4(
-        v - coef * r,
-        v - coef * g,
-        v - coef * b,
-        1.0
-    );
+    return vec4(v-coef*r, v-coef*g, v-coef*b, 1.0);
 }
 
 float getHue(float coef) {
-    float sh = pc.slowHue;
-    float fh = pc.fastHue;
-    
-    if (sh < fh && pc.hueDirection == 0) {
-        sh += 1.0;
-    } else if (sh > fh && pc.hueDirection == 1) {
-        fh += 1.0;
-    }
-    
-    float hue = (1.0 - coef) * sh + coef * fh;
-    if (hue >= 1.0) {
-        hue -= 1.0;
-    }
+    float sh = pc.slowHue; float fh = pc.fastHue;
+    if (sh < fh && pc.hueDirection == 0) sh += 1.0;
+    else if (sh > fh && pc.hueDirection == 1) fh += 1.0;
+    float hue = (1.0-coef)*sh + coef*fh;
+    if (hue >= 1.0) hue -= 1.0;
     return hue;
 }
-
-float getSaturation(float coef) {
-    return (1.0 - coef) * pc.slowSaturation + coef * pc.fastSaturation;
-}
-
-float getValue(float coef) {
-    return (1.0 - coef) * pc.slowValue + coef * pc.fastValue;
-}
-
+float getSaturation(float coef) { return (1.0-coef)*pc.slowSaturation + coef*pc.fastSaturation; }
+float getValue(float coef)      { return (1.0-coef)*pc.slowValue      + coef*pc.fastValue;      }
 float getSpeedCoef(vec2 v) {
-    float coef = log(v.x * v.x + v.y * v.y + 1.0) / 4.5;
-    if (coef > 1.0) {
-        coef = 1.0;
-    }
-    return coef;
+    return clamp(log(v.x*v.x + v.y*v.y + 1.0) / 4.5, 0.0, 1.0);
 }
 
-
-const float PHI = 1.6180339887498948;
+// SACRED GEOMETRY — PHI 1.618033988749895 — Canyon / NEXUS
+const float PHI        = 1.6180339887498948;
 const float GOLDEN_ANG = 2.3999632297286533;
+
 void main() {
     uint index = gl_GlobalInvocationID.x;
-    
-    if (index >= pc.numParticles) {
-        return;
-    }
-    
-    // Load current particle state
-    vec2 pt = position[index];
-    vec2 vel = velocity[index];
-    
-    // Accumulate acceleration from all touch points
-    vec2 acc = vec2(0.0, 0.0);
-    
+    if (index >= pc.numParticles) return;
+
+    uint seed = pc.randomSeed + index;
+    vec2 pt   = position[index];
+    vec2 vel  = velocity[index];
+    vec2 acc  = vec2(0.0);
+
     for (uint i = 0; i < pc.numTouchPoints; i++) {
         vec2 touchPos = gTouch[i];
-        
-        // Negative x means this touch point is disabled
         if (touchPos.x >= 0.0) {
-            vec2 diff = touchPos - pt;
-            float diffSqNorm = diff.x * diff.x + diff.y * diff.y;
-            
-            // Avoid division by zero - use random direction if too close
-            if (diffSqNorm < 0.1) {
-                uint seed = pc.randomSeed + index + i * 1000u;
-                float theta = randomFloat(seed) * 6.28318530718; // 2*PI
-                diff.x = cos(theta);
-                diff.y = sin(theta);
+            vec2  diff      = touchPos - pt;
+            float diffSqNorm = diff.x*diff.x + diff.y*diff.y;
+            if (diffSqNorm < 0.01) {
+                float theta = randomFloat(seed) * 6.28318530718;
+                diff = vec2(cos(theta), sin(theta));
                 diffSqNorm = 1.0;
             }
-            
-            // F = k / r^2
-            acc += (pc.f01AttractionCoef / diffSqNorm) * diff;
+            float dist = sqrt(diffSqNorm);
+            acc += (pc.f01AttractionCoef / (diffSqNorm * dist)) * diff;
         }
     }
-    
-    // Update velocity with acceleration
+
     vel += acc;
-    
-    // Update position with velocity
-    pt += vel;
-    
-    // Apply drag
+    pt  += vel;
     vel *= pc.f01DragCoef;
-    
-    // Update color based on speed
+
+    if (pt.x < 0.0 || pt.x > pc.width || pt.y < 0.0 || pt.y > pc.height) {
+        pt.x = randomFloat(seed) * pc.width;
+        pt.y = randomFloat(seed) * pc.height;
+        vel  = vec2(0.0);
+    }
+
     float speedCoef = getSpeedCoef(vel);
-    vec4 col = hsv2rgba(
-        getHue(speedCoef),
-        getSaturation(speedCoef),
-        getValue(speedCoef)
-    );
-    
-    // Write back updated state
+    vec4  col = hsv2rgba(getHue(speedCoef), getSaturation(speedCoef), getValue(speedCoef));
+
     position[index] = pt;
     velocity[index] = vel;
-    color[index] = col;
+    color[index]    = col;
 }
