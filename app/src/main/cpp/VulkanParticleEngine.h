@@ -23,15 +23,15 @@ struct ParticleParams {
 };
 
 struct ComputePushConstants {
-    float numParticles;   // cast from uint32_t
-    float numTouch;       // cast from uint32_t
+    uint32_t numParticles;
+    uint32_t numTouch;
     float attract;
     float drag;
     float width, height;
     float slowH, slowS, slowV;
     float fastH, fastS, fastV;
-    float hueDir;         // cast from int
-    float frameSeed;      // cast from uint32_t
+    int hueDir;
+    uint32_t frameSeed;
 };
 
 // Must match the compiled particle_render.vert.spv push constant block:
