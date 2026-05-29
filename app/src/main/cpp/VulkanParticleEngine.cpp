@@ -176,8 +176,8 @@ void VulkanParticleEngine::initParticles() {
 
     // Push constants for init
     ComputePushConstants pc{};
-    pc.numParticles  = numParticles_;
-    pc.numTouch      = numTouchPoints_;
+    pc.numParticles  = static_cast<float>(numParticles_);
+    pc.numTouch      = static_cast<float>(numTouchPoints_);
     pc.attract       = params_.attract;
     pc.drag          = params_.drag;
     pc.width         = (float)width_;
@@ -188,8 +188,8 @@ void VulkanParticleEngine::initParticles() {
     pc.fastH         = params_.fastH;
     pc.fastS         = params_.fastS;
     pc.fastV         = params_.fastV;
-    pc.hueDir        = params_.hueDir;
-    pc.frameSeed     = frameSeed_++;
+    pc.hueDir        = static_cast<float>(params_.hueDir);
+    pc.frameSeed     = static_cast<float>(frameSeed_++);
 
     vkCmdPushConstants(cmd, computePipelineLayout_,
         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pc);
@@ -319,8 +319,8 @@ void VulkanParticleEngine::updateParticles() {
         computePipelineLayout_, 0, 1, &computeDescriptorSet_, 0, nullptr);
 
     ComputePushConstants pc{};
-    pc.numParticles  = numParticles_;
-    pc.numTouch      = numTouchPoints_;
+    pc.numParticles  = static_cast<float>(numParticles_);
+    pc.numTouch      = static_cast<float>(numTouchPoints_);
     pc.attract       = params_.attract;
     pc.drag          = params_.drag;
     pc.width         = (float)width_;
@@ -331,8 +331,8 @@ void VulkanParticleEngine::updateParticles() {
     pc.fastH         = params_.fastH;
     pc.fastS         = params_.fastS;
     pc.fastV         = params_.fastV;
-    pc.hueDir        = params_.hueDir;
-    pc.frameSeed     = frameSeed_++;
+    pc.hueDir        = static_cast<float>(params_.hueDir);
+    pc.frameSeed     = static_cast<float>(frameSeed_++);
 
     vkCmdPushConstants(cmd, computePipelineLayout_,
         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pc);
