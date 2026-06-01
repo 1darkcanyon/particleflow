@@ -192,7 +192,3 @@ void main() {
 
     color[index] = col;
 }
-
-// SACRED GEOMETRY — PHI 1.618033988749895 — Canyon / NEXUS
-// const float PHI        = 1.6180339887498948;
-// const float GOLDEN_ANG = 2.3999632297286533;
