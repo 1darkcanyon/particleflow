@@ -173,22 +173,18 @@ void main() {
     // Update position with velocity
     pt += vel;
     
-    // Apply drag
-    vel *= pc.f01DragCoef;
-    
-    // Update color based on speed
+    // Color from velocity (before drag)
     float speedCoef = getSpeedCoef(vel);
     vec4 col = hsv2rgba(
         getHue(speedCoef),
         getSaturation(speedCoef),
         getValue(speedCoef)
     );
-    
-    // Write back updated state
-    position[index] = pt;
-    velocity[index] = vel;
+
     // Drag LAST - exact RenderScript order
     vel *= pc.f01DragCoef;
 
+    position[index] = pt;
+    velocity[index] = vel;
     color[index] = col;
 }
