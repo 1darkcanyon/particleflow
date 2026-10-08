@@ -11,13 +11,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install NDK and CMake
         run: |
-          sdkmanager "ndk;25.1.8937393"
-          sdkmanager "cmake;3.22.1"
+          yes | $(ls -d $ANDROID_HOME/cmdline-tools/*/bin/sdkmanager | head -1) --licenses >/dev/null || true
+          $(ls -d $ANDROID_HOME/cmdline-tools/*/bin/sdkmanager | head -1) "ndk;25.1.8937393"
+          $(ls -d $ANDROID_HOME/cmdline-tools/*/bin/sdkmanager | head -1) "cmake;3.22.1"
 
       - name: Compile shaders
         run: |
