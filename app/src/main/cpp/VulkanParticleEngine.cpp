@@ -13,6 +13,7 @@
 #include <vector>
 #include <stdexcept>
 #include <random>
+#include <algorithm>
 
 #define LOG_TAG "ParticleFlow"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -25,6 +26,7 @@
 static const uint32_t WORKGROUP_SIZE       = 256;
 static const uint32_t MAX_TOUCH_POINTS     = 16;
 static const float    PI                   = 3.14159265358979f;
+static const int      MAX_PARTICLES        = 4000000;
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTRUCTOR / DESTRUCTOR
@@ -109,17 +111,24 @@ bool VulkanParticleEngine::initialize(ANativeWindow* window) {
         createRenderPass();
         createFramebuffers();
         createCommandPool();
-        createParticleBuffers();
+        createParticleBuffers();      // sized from numParticles_ (setParameters must run BEFORE initialize)
         createTouchBuffers();
-        setDefaultAttractionPoints(); // place initial circle before first initParticles()
+        setDefaultAttractionPoints(); // place initial ring before first frame
         createComputeDescriptors();
         createComputePipelines();
         createGraphicsPipeline();
         createCommandBuffers();
+        createRenderFinishedSemaphores();
         createSyncObjects();
 
-        initialized_ = true;
-        LOGI("Vulkan initialization complete. Particles: %d", numParticles_);
+        {
+            std::lock_guard<std::mutex> lk(mutex_);
+            needInitParticles_ = true;   // first frame runs the init shader
+            touchDirty_        = true;   // first frame uploads the touch buffer
+        }
+        swapchainValid_ = true;
+        initialized_    = true;
+        LOGI("Vulkan initialization complete. Particles: %d", allocatedParticles_);
         return true;
 
     } catch (const std::exception& e) {
@@ -136,6 +145,13 @@ void VulkanParticleEngine::setParameters(
     float w, float h, int numPart, int numTouch,
     int partSize, int bgColor)
 {
+    (void)w; (void)h;   // Surface size comes from the swapchain, never from the caller:
+                        // Java may call this before the surface size is known (would be 0).
+    std::lock_guard<std::mutex> lk(mutex_);
+
+    int n = std::max(1, std::min(numPart, MAX_PARTICLES));
+    int t = std::max(1, std::min(numTouch, (int)MAX_TOUCH_POINTS));
+
     params_.slowH   = slowH;
     params_.slowS   = slowS;
     params_.slowV   = slowV;
@@ -145,18 +161,15 @@ void VulkanParticleEngine::setParameters(
     params_.hueDir  = hueDir;
     params_.attract = attract;
     params_.drag    = drag;
-    params_.width   = w;
-    params_.height  = h;
-    params_.numPart = numPart;
-    params_.numTouch= numTouch;
+    params_.numPart = n;
+    params_.numTouch= t;
     params_.partSize= partSize;
     params_.bgColor = bgColor;
 
-    numParticles_   = numPart;
-    numTouchPoints_ = numTouch;
-    particleSize_   = partSize;
-    width_          = (uint32_t)w;
-    height_         = (uint32_t)h;
+    // GPU buffers are (re)allocated on the render thread when numParticles_ != allocatedParticles_.
+    numParticles_   = n;
+    numTouchPoints_ = t;
+    particleSize_   = std::max(1, partSize);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -165,40 +178,9 @@ void VulkanParticleEngine::setParameters(
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::initParticles() {
-    if (!initialized_) return;
-
-    // Dispatch init compute shader — scatters particles randomly across screen
-    VkCommandBuffer cmd = beginSingleTimeCommands();
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineInit_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-        computePipelineLayout_, 0, 1, &computeDescriptorSet_, 0, nullptr);
-
-    // Push constants for init
-    ComputePushConstants pc{};
-    pc.numParticles  = numParticles_;
-    pc.numTouch      = numTouchPoints_;
-    pc.attract       = params_.attract;
-    pc.drag          = params_.drag;
-    pc.width         = (float)width_;
-    pc.height        = (float)height_;
-    pc.slowH         = params_.slowH;
-    pc.slowS         = params_.slowS;
-    pc.slowV         = params_.slowV;
-    pc.fastH         = params_.fastH;
-    pc.fastS         = params_.fastS;
-    pc.fastV         = params_.fastV;
-    pc.hueDir        = params_.hueDir;
-    pc.frameSeed     = frameSeed_++;
-
-    vkCmdPushConstants(cmd, computePipelineLayout_,
-        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pc);
-
-    uint32_t groupCount = (numParticles_ + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
-    vkCmdDispatch(cmd, groupCount, 1, 1);
-
-    endSingleTimeCommands(cmd);
-    LOGI("Particles initialized: %d", numParticles_);
+    // Safe from any thread: just raises a request, the render thread runs the init shader.
+    std::lock_guard<std::mutex> lk(mutex_);
+    needInitParticles_ = true;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -214,7 +196,7 @@ void VulkanParticleEngine::initTesla369Pattern() {
     float innerR     = outerR * 0.60f;
 
     // Clear all touch points first
-    resetAttractionPoints();
+    for (auto& pt : touchPositions_) pt = {-1.0f, -1.0f};
 
     // 3 outer triangle points (120 degrees apart, starting top)
     for (int i = 0; i < 3; i++) {
@@ -239,7 +221,7 @@ void VulkanParticleEngine::initTesla369Pattern() {
     params_.drag     = 1.0f;
     numParticles_    = 432000;
 
-    updateTouchBuffer();
+    touchDirty_ = true;
     LOGI("Tesla 369 pattern initialized");
 }
 
@@ -249,21 +231,16 @@ void VulkanParticleEngine::initTesla369Pattern() {
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::setTouch(int index, float x, float y) {
-    if (index < 0 || index >= MAX_TOUCH_POINTS) return;
+    if (index < 0 || index >= (int)MAX_TOUCH_POINTS) return;
+    std::lock_guard<std::mutex> lk(mutex_);
     touchPositions_[index] = {x, y};
-    // Do NOT call updateTouchBuffer() here — this may be called from any thread.
-    // GPU upload is batched once per frame at the top of updateParticles() (render thread only).
+    touchDirty_ = true;   // uploaded by the render thread at the start of the next frame
 }
 
 void VulkanParticleEngine::resetAttractionPoints() {
-    // Restore the default circle of attraction points (matches original .rs app).
-    // Falls back to all-disabled when called before dimensions are known (e.g. from ctor).
-    if (width_ > 0 && height_ > 0) {
-        setDefaultAttractionPoints();
-    } else {
-        for (auto& pt : touchPositions_) pt = {-1.0f, -1.0f};
-        if (touchMapped_) updateTouchBuffer();
-    }
+    // Safe from any thread: processed on the render thread (needs the surface size).
+    std::lock_guard<std::mutex> lk(mutex_);
+    needResetAttraction_ = true;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -276,6 +253,7 @@ void VulkanParticleEngine::resetAttractionPoints() {
 
 void VulkanParticleEngine::setDefaultAttractionPoints() {
     if (width_ == 0 || height_ == 0) return;
+    std::lock_guard<std::mutex> lk(mutex_);
 
     float cx = width_  / 2.0f;
     float cy = height_ / 2.0f;
@@ -289,20 +267,15 @@ void VulkanParticleEngine::setDefaultAttractionPoints() {
     for (size_t i = (size_t)numTouchPoints_; i < touchPositions_.size(); i++) {
         touchPositions_[i] = {-1.0f, -1.0f};
     }
-    updateTouchBuffer();
+    touchDirty_ = true;
 }
 
 void VulkanParticleEngine::updateTouchBuffer() {
+    // Copies CPU touch positions into the persistently mapped staging buffer.
+    // The GPU copy (staging -> device buffer) is recorded in the frame command buffer.
     if (!touchMapped_) return;
-    memcpy(touchMapped_, touchPositions_.data(),
-           sizeof(Vec2) * touchPositions_.size());
-
-    // Copy staging → device touch buffer
-    VkCommandBuffer cmd = beginSingleTimeCommands();
-    VkBufferCopy copy{};
-    copy.size = sizeof(Vec2) * MAX_TOUCH_POINTS;
-    vkCmdCopyBuffer(cmd, touchStagingBuffer_, touchBuffer_, 1, &copy);
-    endSingleTimeCommands(cmd);
+    std::lock_guard<std::mutex> lk(mutex_);
+    memcpy(touchMapped_, touchPositions_.data(), sizeof(Vec2) * touchPositions_.size());
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -311,60 +284,8 @@ void VulkanParticleEngine::updateTouchBuffer() {
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::updateParticles() {
-    if (!initialized_) return;
-
-    // Upload any pending touch position changes to GPU (render thread — safe sync point).
-    updateTouchBuffer();
-
-    VkCommandBuffer cmd = beginSingleTimeCommands();
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-        computePipelineLayout_, 0, 1, &computeDescriptorSet_, 0, nullptr);
-
-    ComputePushConstants pc{};
-    pc.numParticles  = numParticles_;
-    pc.numTouch      = numTouchPoints_;
-    pc.attract       = params_.attract;
-    pc.drag          = params_.drag;
-    pc.width         = (float)width_;
-    pc.height        = (float)height_;
-    pc.slowH         = params_.slowH;
-    pc.slowS         = params_.slowS;
-    pc.slowV         = params_.slowV;
-    pc.fastH         = params_.fastH;
-    pc.fastS         = params_.fastS;
-    pc.fastV         = params_.fastV;
-    pc.hueDir        = params_.hueDir;
-    pc.frameSeed     = frameSeed_++;
-
-    vkCmdPushConstants(cmd, computePipelineLayout_,
-        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pc);
-
-    // Memory barrier: ensure render finished before compute writes
-    VkMemoryBarrier barrier{};
-    barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-
-    vkCmdPipelineBarrier(cmd,
-        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        0, 1, &barrier, 0, nullptr, 0, nullptr);
-
-    uint32_t groupCount = (numParticles_ + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
-    vkCmdDispatch(cmd, groupCount, 1, 1);
-
-    // Memory barrier: ensure compute finished before render reads
-    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-    vkCmdPipelineBarrier(cmd,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-        0, 1, &barrier, 0, nullptr, 0, nullptr);
-
-    endSingleTimeCommands(cmd);
+    // Intentionally empty: the compute step is recorded at the start of each frame's
+    // command buffer inside render() (one submit per frame, no CPU waits).
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -373,33 +294,81 @@ void VulkanParticleEngine::updateParticles() {
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::render() {
-    if (!initialized_ || swapchainImages_.empty()) return;
+    if (!initialized_ || fatalError_) return;
+    try {
+        renderImpl();
+    } catch (const std::exception& e) {
+        LOGE("render() failed, stopping renderer: %s", e.what());
+        fatalError_ = true;   // never throw across JNI
+    }
+}
 
-    // Wait for previous frame fence
+void VulkanParticleEngine::renderImpl() {
+    if (!ensureSwapchain()) return;
+    if (swapchainImages_.empty()) return;
+
+    applyPendingRequests();   // may reallocate buffers (waits for the GPU) - do it before the fence wait
+
+    // Wait for the previous frame to finish. The fence is only RESET right before a submit
+    // that is guaranteed to happen, otherwise the next wait would block forever.
     vkWaitForFences(device_, 1, &inFlightFence_, VK_TRUE, UINT64_MAX);
-    vkResetFences(device_, 1, &inFlightFence_);
 
-    uint32_t imageIndex;
+    uint32_t imageIndex = 0;
     VkResult result = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX,
         imageAvailableSemaphore_, VK_NULL_HANDLE, &imageIndex);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        recreateSwapchain();
+        swapchainRecreateNeeded_ = true;   // rebuilt at the start of the next frame
+        return;                            // fence is still signaled -> no deadlock
+    }
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        LOGE("vkAcquireNextImageKHR failed: %d", (int)result);
+        if (result == VK_ERROR_DEVICE_LOST || result == VK_ERROR_SURFACE_LOST_KHR) fatalError_ = true;
         return;
     }
 
-    // Extract background color components
-    float bgR = ((params_.bgColor >> 16) & 0xFF) / 255.0f;
-    float bgG = ((params_.bgColor >>  8) & 0xFF) / 255.0f;
-    float bgB = ((params_.bgColor      ) & 0xFF) / 255.0f;
+    // Snapshot everything the frame needs under the lock (UI thread may change it any time).
+    ParticleParams p;
+    int  nParticles, nTouch, pointSize;
+    bool doInit, uploadTouch;
+    {
+        std::lock_guard<std::mutex> lk(mutex_);
+        p            = params_;
+        nParticles   = numParticles_;
+        nTouch       = numTouchPoints_;
+        pointSize    = particleSize_;
+        doInit       = needInitParticles_;
+        needInitParticles_ = false;
+        uploadTouch  = touchDirty_;
+        touchDirty_  = false;
+        if (uploadTouch && touchMapped_) {
+            // Safe: the previous frame (the only reader of the staging buffer) has finished.
+            memcpy(touchMapped_, touchPositions_.data(), sizeof(Vec2) * touchPositions_.size());
+        }
+    }
+    // Never touch more particles than the GPU buffers hold (a size change is applied next frame).
+    nParticles = std::min(nParticles, allocatedParticles_);
+    if (nParticles <= 0) return;
+
+    vkResetFences(device_, 1, &inFlightFence_);
+
+    float bgR = ((p.bgColor >> 16) & 0xFF) / 255.0f;
+    float bgG = ((p.bgColor >>  8) & 0xFF) / 255.0f;
+    float bgB = ((p.bgColor      ) & 0xFF) / 255.0f;
+
+    VkCommandBuffer cmd = graphicsCommandBuffers_[imageIndex];
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-    vkResetCommandBuffer(graphicsCommandBuffers_[imageIndex], 0);
-    vkBeginCommandBuffer(graphicsCommandBuffers_[imageIndex], &beginInfo);
+    vkResetCommandBuffer(cmd, 0);
+    vkBeginCommandBuffer(cmd, &beginInfo);
 
+    // 1) physics step (touch upload + optional init + update) - same submit as the draw
+    recordCompute(cmd, p, nParticles, nTouch, doInit, uploadTouch);
+
+    // 2) draw
     VkRenderPassBeginInfo rpInfo{};
     rpInfo.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rpInfo.renderPass        = renderPass_;
@@ -411,78 +380,214 @@ void VulkanParticleEngine::render() {
     rpInfo.clearValueCount = 1;
     rpInfo.pClearValues    = &clearColor;
 
-    vkCmdBeginRenderPass(graphicsCommandBuffers_[imageIndex],
-        &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRenderPass(cmd, &rpInfo, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline_);
 
-    vkCmdBindPipeline(graphicsCommandBuffers_[imageIndex],
-        VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline_);
-
-    // Bind position and color as vertex buffers
     VkBuffer vertexBuffers[] = {positionBuffer_, colorBuffer_};
     VkDeviceSize offsets[]   = {0, 0};
-    vkCmdBindVertexBuffers(graphicsCommandBuffers_[imageIndex],
-        0, 2, vertexBuffers, offsets);
+    vkCmdBindVertexBuffers(cmd, 0, 2, vertexBuffers, offsets);
 
-    // Build column-major orthographic matrix matching what the compiled SPV expects:
-    //   mat4 mvpMatrix (offset 0, 64 bytes) + float pointSize (offset 64).
-    // Maps particle coords [0..w]×[0..h] → Vulkan NDC [-1..1]×[-1..1].
-    // Vulkan NDC Y=-1 is top, Y=+1 is bottom; particles use Android Y=0-at-top → correct.
+    // Column-major ortho matrix: particle pixels [0..w]x[0..h] -> NDC. The compiled vertex shader
+    // negates Y afterwards so particle y=0 (OpenGL convention, as in the original) is at the bottom.
     GraphicsPushConstants gpc{};
-    float fw = (float)width_;
-    float fh = (float)height_;
-    // col 0
-    gpc.mvpMatrix[0]  = 2.0f / fw;  gpc.mvpMatrix[1]  = 0.0f;
-    gpc.mvpMatrix[2]  = 0.0f;       gpc.mvpMatrix[3]  = 0.0f;
-    // col 1
-    gpc.mvpMatrix[4]  = 0.0f;       gpc.mvpMatrix[5]  = 2.0f / fh;
-    gpc.mvpMatrix[6]  = 0.0f;       gpc.mvpMatrix[7]  = 0.0f;
-    // col 2
-    gpc.mvpMatrix[8]  = 0.0f;       gpc.mvpMatrix[9]  = 0.0f;
-    gpc.mvpMatrix[10] = 1.0f;       gpc.mvpMatrix[11] = 0.0f;
-    // col 3 — translation
-    gpc.mvpMatrix[12] = -1.0f;      gpc.mvpMatrix[13] = -1.0f;
-    gpc.mvpMatrix[14] = 0.0f;       gpc.mvpMatrix[15] = 1.0f;
-    gpc.pointSize = (float)particleSize_;
+    float fw = (float)swapchainExtent_.width;
+    float fh = (float)swapchainExtent_.height;
+    gpc.mvpMatrix[0]  = 2.0f / fw;
+    gpc.mvpMatrix[5]  = 2.0f / fh;
+    gpc.mvpMatrix[10] = 1.0f;
+    gpc.mvpMatrix[12] = -1.0f;
+    gpc.mvpMatrix[13] = -1.0f;
+    gpc.mvpMatrix[15] = 1.0f;
+    gpc.pointSize = largePointsSupported_ ? (float)pointSize : 1.0f;
 
-    vkCmdPushConstants(graphicsCommandBuffers_[imageIndex],
-        graphicsPipelineLayout_,
-        VK_SHADER_STAGE_VERTEX_BIT,
+    vkCmdPushConstants(cmd, graphicsPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
         0, sizeof(GraphicsPushConstants), &gpc);
 
-    vkCmdDraw(graphicsCommandBuffers_[imageIndex], numParticles_, 1, 0, 0);
-    vkCmdEndRenderPass(graphicsCommandBuffers_[imageIndex]);
-    vkEndCommandBuffer(graphicsCommandBuffers_[imageIndex]);
+    vkCmdDraw(cmd, (uint32_t)nParticles, 1, 0, 0);
+    vkCmdEndRenderPass(cmd);
+    vkEndCommandBuffer(cmd);
 
     // Submit
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    VkSemaphore renderDone = renderFinishedSemaphores_[imageIndex];
+    VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
-    VkPipelineStageFlags waitStages[] = {
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
-    };
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.waitSemaphoreCount   = 1;
     submitInfo.pWaitSemaphores      = &imageAvailableSemaphore_;
     submitInfo.pWaitDstStageMask    = waitStages;
     submitInfo.commandBufferCount   = 1;
-    submitInfo.pCommandBuffers      = &graphicsCommandBuffers_[imageIndex];
+    submitInfo.pCommandBuffers      = &cmd;
     submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores    = &renderFinishedSemaphore_;
+    submitInfo.pSignalSemaphores    = &renderDone;
 
-    vkQueueSubmit(graphicsQueue_, 1, &submitInfo, inFlightFence_);
+    VkResult sr = vkQueueSubmit(graphicsQueue_, 1, &submitInfo, inFlightFence_);
+    if (sr != VK_SUCCESS) {
+        LOGE("vkQueueSubmit failed: %d - stopping renderer", (int)sr);
+        fatalError_ = true;   // the fence was reset and will never signal; do not wait on it again
+        return;
+    }
 
     // Present
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores    = &renderFinishedSemaphore_;
+    presentInfo.pWaitSemaphores    = &renderDone;
     presentInfo.swapchainCount     = 1;
     presentInfo.pSwapchains        = &swapchain_;
     presentInfo.pImageIndices      = &imageIndex;
 
     result = vkQueuePresentKHR(graphicsQueue_, &presentInfo);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-        recreateSwapchain();
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        swapchainRecreateNeeded_ = true;
+    } else if (result == VK_SUBOPTIMAL_KHR) {
+        // Only rebuild if the surface really changed (avoids a rebuild every frame).
+        std::lock_guard<std::mutex> lk(mutex_);
+        surfaceChangedPending_ = true;
+    } else if (result != VK_SUCCESS) {
+        LOGE("vkQueuePresentKHR failed: %d", (int)result);
+        if (result == VK_ERROR_DEVICE_LOST || result == VK_ERROR_SURFACE_LOST_KHR) fatalError_ = true;
     }
+}
+
+void VulkanParticleEngine::recordCompute(VkCommandBuffer cmd, const ParticleParams& p,
+                                         int nParticles, int nTouch,
+                                         bool doInit, bool uploadTouch)
+{
+    if (uploadTouch) {
+        VkBufferCopy copy{};
+        copy.size = sizeof(Vec2) * MAX_TOUCH_POINTS;
+        vkCmdCopyBuffer(cmd, touchStagingBuffer_, touchBuffer_, 1, &copy);
+
+        VkMemoryBarrier b{};
+        b.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        b.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0, 1, &b, 0, nullptr, 0, nullptr);
+    }
+
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+        computePipelineLayout_, 0, 1, &computeDescriptorSet_, 0, nullptr);
+
+    ComputePushConstants pc{};
+    pc.numParticles = (uint32_t)nParticles;
+    pc.numTouch     = (uint32_t)nTouch;
+    pc.attract      = p.attract;
+    pc.drag         = p.drag;
+    pc.width        = (float)width_;
+    pc.height       = (float)height_;
+    pc.slowH        = p.slowH;
+    pc.slowS        = p.slowS;
+    pc.slowV        = p.slowV;
+    pc.fastH        = p.fastH;
+    pc.fastS        = p.fastS;
+    pc.fastV        = p.fastV;
+    pc.hueDir       = p.hueDir;
+
+    uint32_t groups = ((uint32_t)nParticles + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+
+    if (doInit) {
+        pc.frameSeed = frameSeed_++;
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineInit_);
+        vkCmdPushConstants(cmd, computePipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
+            0, sizeof(ComputePushConstants), &pc);
+        vkCmdDispatch(cmd, groups, 1, 1);
+
+        VkMemoryBarrier b{};
+        b.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        b.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0, 1, &b, 0, nullptr, 0, nullptr);
+    }
+
+    pc.frameSeed = frameSeed_++;
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline_);
+    vkCmdPushConstants(cmd, computePipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
+        0, sizeof(ComputePushConstants), &pc);
+    vkCmdDispatch(cmd, groups, 1, 1);
+
+    // Compute writes positions/colors -> vertex input reads them as vertex attributes.
+    VkMemoryBarrier b{};
+    b.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    b.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    b.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+        0, 1, &b, 0, nullptr, 0, nullptr);
+}
+
+// Rebuilds the swapchain when needed. Returns false if there is nothing to draw to right now.
+bool VulkanParticleEngine::ensureSwapchain() {
+    bool pending;
+    {
+        std::lock_guard<std::mutex> lk(mutex_);
+        pending = surfaceChangedPending_;
+        surfaceChangedPending_ = false;
+    }
+
+    VkSurfaceCapabilitiesKHR caps{};
+    if (pending && swapchainValid_ && !swapchainRecreateNeeded_) {
+        if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice_, surface_, &caps) == VK_SUCCESS) {
+            if (caps.currentExtent.width  != swapchainExtent_.width  ||
+                caps.currentExtent.height != swapchainExtent_.height ||
+                caps.currentTransform     != swapchainTransform_) {
+                swapchainRecreateNeeded_ = true;
+            }
+        }
+    }
+
+    if (swapchainValid_ && !swapchainRecreateNeeded_) return true;
+
+    // Nothing to draw to yet (e.g. zero-sized surface): try again next frame.
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice_, surface_, &caps) != VK_SUCCESS) return false;
+    if (caps.currentExtent.width == 0 || caps.currentExtent.height == 0) return false;
+
+    try {
+        recreateSwapchain();
+    } catch (const std::exception& e) {
+        LOGE("recreateSwapchain failed: %s", e.what());
+        swapchainValid_ = false;
+        return false;
+    }
+    return swapchainValid_;
+}
+
+// Applies requests made by other threads. Render thread only.
+void VulkanParticleEngine::applyPendingRequests() {
+    bool doReset = false;
+    int  wantParticles = 0;
+    {
+        std::lock_guard<std::mutex> lk(mutex_);
+        doReset = needResetAttraction_;
+        needResetAttraction_ = false;
+        wantParticles = numParticles_;
+    }
+
+    if (wantParticles != allocatedParticles_) {
+        LOGI("Resizing particle buffers: %d -> %d", allocatedParticles_, wantParticles);
+        reallocateParticleBuffers();
+    }
+    if (doReset) setDefaultAttractionPoints();
+}
+
+void VulkanParticleEngine::reallocateParticleBuffers() {
+    vkDeviceWaitIdle(device_);
+    destroyBuffer(positionBuffer_, positionMemory_);
+    destroyBuffer(velocityBuffer_, velocityMemory_);
+    destroyBuffer(colorBuffer_,    colorMemory_);
+    createParticleBuffers();      // sets allocatedParticles_
+    writeComputeDescriptors();    // descriptors must point at the new buffers
+    std::lock_guard<std::mutex> lk(mutex_);
+    needInitParticles_ = true;    // fresh buffers contain garbage
+}
+
+void VulkanParticleEngine::destroyBuffer(VkBuffer& buffer, VkDeviceMemory& memory) {
+    if (buffer) { vkDestroyBuffer(device_, buffer, nullptr); buffer = VK_NULL_HANDLE; }
+    if (memory) { vkFreeMemory(device_, memory, nullptr);    memory = VK_NULL_HANDLE; }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -490,15 +595,11 @@ void VulkanParticleEngine::render() {
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::onSurfaceChanged(int width, int height) {
-    width_  = width;
-    height_ = height;
-    params_.width  = (float)width;
-    params_.height = (float)height;
-
-    if (initialized_) {
-        vkDeviceWaitIdle(device_);
-        recreateSwapchain();
-    }
+    // Called from the UI thread: must not touch Vulkan objects. The render thread rebuilds the
+    // swapchain at the start of its next frame if the surface really changed.
+    (void)width; (void)height;
+    std::lock_guard<std::mutex> lk(mutex_);
+    surfaceChangedPending_ = true;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -556,16 +657,25 @@ void VulkanParticleEngine::pickPhysicalDevice() {
     vkEnumeratePhysicalDevices(instance_, &count, devices.data());
     physicalDevice_ = devices[0]; // Use first available
 
-    // Find queue families
     uint32_t queueCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice_, &queueCount, nullptr);
     std::vector<VkQueueFamilyProperties> queues(queueCount);
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice_, &queueCount, queues.data());
 
+    // One queue family must do graphics + compute + present: everything is submitted to one queue.
+    bool found = false;
     for (uint32_t i = 0; i < queueCount; i++) {
-        if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) graphicsFamily_ = i;
-        if (queues[i].queueFlags & VK_QUEUE_COMPUTE_BIT)  computeFamily_  = i;
+        VkBool32 present = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice_, i, surface_, &present);
+        if ((queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
+            (queues[i].queueFlags & VK_QUEUE_COMPUTE_BIT) && present) {
+            graphicsFamily_ = i;
+            computeFamily_  = i;
+            found = true;
+            break;
+        }
     }
+    if (!found) throw std::runtime_error("No queue family with graphics+compute+present support");
 }
 
 void VulkanParticleEngine::createLogicalDevice() {
@@ -585,8 +695,14 @@ void VulkanParticleEngine::createLogicalDevice() {
         queueInfos.push_back(cq);
     }
 
+    // Only request largePoints if the GPU has it (requesting an unsupported feature makes
+    // vkCreateDevice fail and the app would stay black).
+    VkPhysicalDeviceFeatures supported{};
+    vkGetPhysicalDeviceFeatures(physicalDevice_, &supported);
+    largePointsSupported_ = (supported.largePoints == VK_TRUE);
+
     VkPhysicalDeviceFeatures features{};
-    features.largePoints = VK_TRUE; // Needed for particle size > 1
+    features.largePoints = supported.largePoints; // Needed for particle size > 1
 
     std::vector<const char*> extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
@@ -622,11 +738,11 @@ void VulkanParticleEngine::createSwapchain() {
 
     swapchainFormat_ = formats[0].format;
     for (auto& f : formats) {
-        // Prefer sRGB framebuffer to match original RenderScript color space handling.
-        // sRGB encoding is applied automatically by the GPU, matching the display pipeline
-        // expected by the original app. UNORM skips gamma and causes washed-out colors.
-        if (f.format == VK_FORMAT_R8G8B8A8_SRGB ||
-            f.format == VK_FORMAT_B8G8R8A8_SRGB) {
+        // UNORM: the shader's HSV->RGB output is stored as-is, exactly like the original GLES
+        // framebuffer. An *_SRGB format would gamma-encode those values again and wash the
+        // colors out.
+        if ((f.format == VK_FORMAT_R8G8B8A8_UNORM || f.format == VK_FORMAT_B8G8R8A8_UNORM) &&
+            f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
             swapchainFormat_ = f.format;
             break;
         }
@@ -636,6 +752,10 @@ void VulkanParticleEngine::createSwapchain() {
     if (swapchainExtent_.width == UINT32_MAX) {
         swapchainExtent_ = {width_, height_};
     }
+    if (swapchainExtent_.width == 0 || swapchainExtent_.height == 0) {
+        throw std::runtime_error("Surface has zero size");
+    }
+    swapchainTransform_ = caps.currentTransform;
     width_  = swapchainExtent_.width;
     height_ = swapchainExtent_.height;
 
@@ -682,24 +802,42 @@ void VulkanParticleEngine::createSwapchain() {
 }
 
 void VulkanParticleEngine::recreateSwapchain() {
+    swapchainValid_ = false;
     vkDeviceWaitIdle(device_);
+    uint32_t oldW = width_, oldH = height_;
+
     cleanupSwapchain();
     createSwapchain();
     createRenderPass();
     createFramebuffers();
     createGraphicsPipeline();
     createCommandBuffers();
+    createRenderFinishedSemaphores();
+
+    swapchainValid_          = true;
+    swapchainRecreateNeeded_ = false;
+
+    if (width_ != oldW || height_ != oldH) {
+        // Same as the original app: a new surface size restarts the simulation.
+        std::lock_guard<std::mutex> lk(mutex_);
+        needInitParticles_   = true;
+        needResetAttraction_ = true;
+    }
 }
 
 void VulkanParticleEngine::cleanupSwapchain() {
-    for (auto fb : framebuffers_)          vkDestroyFramebuffer(device_, fb, nullptr);
-    for (auto iv : swapchainImageViews_)   vkDestroyImageView(device_, iv, nullptr);
-    vkDestroyRenderPass(device_, renderPass_, nullptr);
-    vkDestroyPipeline(device_, graphicsPipeline_, nullptr);
-    vkDestroySwapchainKHR(device_, swapchain_, nullptr);
+    // Null-safe and idempotent.
+    for (auto fb : framebuffers_)        if (fb) vkDestroyFramebuffer(device_, fb, nullptr);
+    for (auto iv : swapchainImageViews_) if (iv) vkDestroyImageView(device_, iv, nullptr);
+    for (auto sem : renderFinishedSemaphores_) if (sem) vkDestroySemaphore(device_, sem, nullptr);
+    renderFinishedSemaphores_.clear();
     framebuffers_.clear();
     swapchainImageViews_.clear();
     swapchainImages_.clear();
+
+    if (renderPass_)       { vkDestroyRenderPass(device_, renderPass_, nullptr);       renderPass_ = VK_NULL_HANDLE; }
+    if (graphicsPipeline_) { vkDestroyPipeline(device_, graphicsPipeline_, nullptr);   graphicsPipeline_ = VK_NULL_HANDLE; }
+    if (swapchain_)        { vkDestroySwapchainKHR(device_, swapchain_, nullptr);      swapchain_ = VK_NULL_HANDLE; }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -731,6 +869,18 @@ void VulkanParticleEngine::createRenderPass() {
     rpInfo.subpassCount    = 1;
     rpInfo.pSubpasses      = &subpass;
 
+    // The image-available semaphore is waited at COLOR_ATTACHMENT_OUTPUT; the layout transition
+    // must not happen before that point.
+    VkSubpassDependency dep{};
+    dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
+    dep.dstSubpass    = 0;
+    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.srcAccessMask = 0;
+    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    rpInfo.dependencyCount = 1;
+    rpInfo.pDependencies   = &dep;
+
     if (vkCreateRenderPass(device_, &rpInfo, nullptr, &renderPass_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create render pass");
     }
@@ -757,8 +907,13 @@ void VulkanParticleEngine::createFramebuffers() {
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::createParticleBuffers() {
-    VkDeviceSize posSize   = sizeof(Vec2) * numParticles_;
-    VkDeviceSize colorSize = sizeof(Vec4) * numParticles_;
+    int n;
+    {
+        std::lock_guard<std::mutex> lk(mutex_);
+        n = numParticles_;
+    }
+    VkDeviceSize posSize   = sizeof(Vec2) * (VkDeviceSize)n;
+    VkDeviceSize colorSize = sizeof(Vec4) * (VkDeviceSize)n;
 
     createBuffer(posSize,
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -774,6 +929,8 @@ void VulkanParticleEngine::createParticleBuffers() {
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         colorBuffer_, colorMemory_);
+
+    allocatedParticles_ = n;
 }
 
 void VulkanParticleEngine::createTouchBuffers() {
@@ -793,8 +950,7 @@ void VulkanParticleEngine::createTouchBuffers() {
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         touchBuffer_, touchMemory_);
 
-    // Initialize all touch points to disabled (-1, -1)
-    updateTouchBuffer();
+    // Contents are uploaded by the first frame (touchDirty_ is raised in initialize()).
 }
 
 void VulkanParticleEngine::createBuffer(
@@ -886,12 +1042,16 @@ void VulkanParticleEngine::createComputeDescriptors() {
     allocInfo.pSetLayouts        = &computeDescriptorSetLayout_;
     vkAllocateDescriptorSets(device_, &allocInfo, &computeDescriptorSet_);
 
-    // Write buffer descriptors
+    writeComputeDescriptors();
+}
+
+// (Re)points the compute descriptor set at the current buffers. GPU must be idle.
+void VulkanParticleEngine::writeComputeDescriptors() {
     VkBuffer buffers[] = {positionBuffer_, velocityBuffer_, colorBuffer_, touchBuffer_};
     VkDeviceSize sizes[] = {
-        sizeof(Vec2) * numParticles_,
-        sizeof(Vec2) * numParticles_,
-        sizeof(Vec4) * numParticles_,
+        sizeof(Vec2) * (VkDeviceSize)allocatedParticles_,
+        sizeof(Vec2) * (VkDeviceSize)allocatedParticles_,
+        sizeof(Vec4) * (VkDeviceSize)allocatedParticles_,
         sizeof(Vec2) * MAX_TOUCH_POINTS
     };
 
@@ -1048,7 +1208,7 @@ void VulkanParticleEngine::createGraphicsPipeline() {
     VkPipelineColorBlendAttachmentState blendAttachment{};
     blendAttachment.colorWriteMask      = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
                                         | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    blendAttachment.blendEnable         = VK_TRUE;
+    blendAttachment.blendEnable         = VK_FALSE;   // original draws opaque points
     blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
     blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     blendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
@@ -1071,8 +1231,10 @@ void VulkanParticleEngine::createGraphicsPipeline() {
     pipelineLayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.pushConstantRangeCount = 1;
     pipelineLayoutInfo.pPushConstantRanges    = &gPushRange;
-    vkCreatePipelineLayout(device_, &pipelineLayoutInfo, nullptr,
-        &graphicsPipelineLayout_);
+    if (!graphicsPipelineLayout_) {   // created once; survives swapchain rebuilds
+        vkCreatePipelineLayout(device_, &pipelineLayoutInfo, nullptr,
+            &graphicsPipelineLayout_);
+    }
 
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1108,6 +1270,11 @@ void VulkanParticleEngine::createCommandPool() {
 }
 
 void VulkanParticleEngine::createCommandBuffers() {
+    if (!graphicsCommandBuffers_.empty()) {
+        vkFreeCommandBuffers(device_, commandPool_,
+            (uint32_t)graphicsCommandBuffers_.size(), graphicsCommandBuffers_.data());
+        graphicsCommandBuffers_.clear();
+    }
     graphicsCommandBuffers_.resize(swapchainImages_.size());
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1115,6 +1282,19 @@ void VulkanParticleEngine::createCommandBuffers() {
     allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     allocInfo.commandBufferCount = (uint32_t)graphicsCommandBuffers_.size();
     vkAllocateCommandBuffers(device_, &allocInfo, graphicsCommandBuffers_.data());
+}
+
+void VulkanParticleEngine::createRenderFinishedSemaphores() {
+    for (auto sem : renderFinishedSemaphores_) if (sem) vkDestroySemaphore(device_, sem, nullptr);
+    renderFinishedSemaphores_.assign(swapchainImages_.size(), VK_NULL_HANDLE);
+
+    VkSemaphoreCreateInfo semInfo{};
+    semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    for (auto& sem : renderFinishedSemaphores_) {
+        if (vkCreateSemaphore(device_, &semInfo, nullptr, &sem) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create semaphore");
+        }
+    }
 }
 
 void VulkanParticleEngine::createSyncObjects() {
@@ -1162,44 +1342,48 @@ void VulkanParticleEngine::endSingleTimeCommands(VkCommandBuffer cmd) {
 // ═══════════════════════════════════════════════════════════════
 
 void VulkanParticleEngine::cleanup() {
-    if (!device_) return;
-    vkDeviceWaitIdle(device_);
+    // Idempotent: every handle is reset to VK_NULL_HANDLE after it is destroyed, so calling this
+    // twice (failed initialize() followed by the destructor) is harmless.
+    if (device_) {
+        vkDeviceWaitIdle(device_);
 
-    if (touchMapped_) {
-        vkUnmapMemory(device_, touchStagingMemory_);
-        touchMapped_ = nullptr;
+        if (touchMapped_) {
+            vkUnmapMemory(device_, touchStagingMemory_);
+            touchMapped_ = nullptr;
+        }
+
+        destroyBuffer(positionBuffer_,     positionMemory_);
+        destroyBuffer(velocityBuffer_,     velocityMemory_);
+        destroyBuffer(colorBuffer_,        colorMemory_);
+        destroyBuffer(touchBuffer_,        touchMemory_);
+        destroyBuffer(touchStagingBuffer_, touchStagingMemory_);
+
+        if (imageAvailableSemaphore_) { vkDestroySemaphore(device_, imageAvailableSemaphore_, nullptr); imageAvailableSemaphore_ = VK_NULL_HANDLE; }
+        if (renderFinishedSemaphore_) { vkDestroySemaphore(device_, renderFinishedSemaphore_, nullptr); renderFinishedSemaphore_ = VK_NULL_HANDLE; }
+        if (inFlightFence_)           { vkDestroyFence(device_, inFlightFence_, nullptr);               inFlightFence_ = VK_NULL_HANDLE; }
+
+        if (commandPool_) { vkDestroyCommandPool(device_, commandPool_, nullptr); commandPool_ = VK_NULL_HANDLE; }
+        graphicsCommandBuffers_.clear();   // freed together with the pool
+
+        if (computeDescriptorPool_)      { vkDestroyDescriptorPool(device_, computeDescriptorPool_, nullptr);           computeDescriptorPool_ = VK_NULL_HANDLE; }
+        if (computeDescriptorSetLayout_) { vkDestroyDescriptorSetLayout(device_, computeDescriptorSetLayout_, nullptr); computeDescriptorSetLayout_ = VK_NULL_HANDLE; }
+        if (computePipeline_)            { vkDestroyPipeline(device_, computePipeline_, nullptr);                       computePipeline_ = VK_NULL_HANDLE; }
+        if (computePipelineInit_)        { vkDestroyPipeline(device_, computePipelineInit_, nullptr);                   computePipelineInit_ = VK_NULL_HANDLE; }
+        if (computePipelineLayout_)      { vkDestroyPipelineLayout(device_, computePipelineLayout_, nullptr);           computePipelineLayout_ = VK_NULL_HANDLE; }
+        if (graphicsPipelineLayout_)     { vkDestroyPipelineLayout(device_, graphicsPipelineLayout_, nullptr);          graphicsPipelineLayout_ = VK_NULL_HANDLE; }
+
+        cleanupSwapchain();
+
+        vkDestroyDevice(device_, nullptr);
+        device_ = VK_NULL_HANDLE;
+        graphicsQueue_ = VK_NULL_HANDLE;
+        computeQueue_  = VK_NULL_HANDLE;
     }
 
-    auto destroyBuf = [&](VkBuffer& b, VkDeviceMemory& m) {
-        if (b) { vkDestroyBuffer(device_, b, nullptr); b = VK_NULL_HANDLE; }
-        if (m) { vkFreeMemory(device_, m, nullptr);    m = VK_NULL_HANDLE; }
-    };
+    if (surface_ && instance_) { vkDestroySurfaceKHR(instance_, surface_, nullptr); surface_ = VK_NULL_HANDLE; }
+    if (instance_)             { vkDestroyInstance(instance_, nullptr);             instance_ = VK_NULL_HANDLE; }
 
-    destroyBuf(positionBuffer_,    positionMemory_);
-    destroyBuf(velocityBuffer_,    velocityMemory_);
-    destroyBuf(colorBuffer_,       colorMemory_);
-    destroyBuf(touchBuffer_,       touchMemory_);
-    destroyBuf(touchStagingBuffer_, touchStagingMemory_);
-
-    vkDestroySemaphore(device_, imageAvailableSemaphore_, nullptr);
-    vkDestroySemaphore(device_, renderFinishedSemaphore_, nullptr);
-    vkDestroyFence(device_, inFlightFence_, nullptr);
-
-    vkDestroyCommandPool(device_, commandPool_, nullptr);
-
-    if (computeDescriptorPool_)    vkDestroyDescriptorPool(device_, computeDescriptorPool_, nullptr);
-    if (computeDescriptorSetLayout_) vkDestroyDescriptorSetLayout(device_, computeDescriptorSetLayout_, nullptr);
-    if (computePipeline_)          vkDestroyPipeline(device_, computePipeline_, nullptr);
-    if (computePipelineInit_)      vkDestroyPipeline(device_, computePipelineInit_, nullptr);
-    if (computePipelineLayout_)    vkDestroyPipelineLayout(device_, computePipelineLayout_, nullptr);
-    if (graphicsPipelineLayout_)   vkDestroyPipelineLayout(device_, graphicsPipelineLayout_, nullptr);
-
-    cleanupSwapchain();
-
-    if (surface_)  vkDestroySurfaceKHR(instance_, surface_, nullptr);
-    if (device_)   vkDestroyDevice(device_, nullptr);
-    if (instance_) vkDestroyInstance(instance_, nullptr);
-
-    initialized_ = false;
+    initialized_    = false;
+    swapchainValid_ = false;
     LOGI("Vulkan engine cleaned up");
 }

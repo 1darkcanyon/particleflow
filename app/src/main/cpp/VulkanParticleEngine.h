@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 #include <array>
+#include <mutex>
 
 struct Vec2 { float x = 0.0f; float y = 0.0f; };
 struct Vec4 { float r = 0.0f; float g = 0.0f; float b = 0.0f; float a = 1.0f; };
@@ -55,12 +56,13 @@ public:
                        int partSize, int bgColor);
     void initParticles();
     void initTesla369Pattern();
+    // Deprecated: the physics step is now recorded inside render() (single submit per frame).
     void updateParticles();
     void setTouch(int index, float x, float y);
     void resetAttractionPoints();
     void render();
     void onSurfaceChanged(int width, int height);
-    void cleanup();
+    void cleanup();   // idempotent: safe to call more than once
 
 private:
     AAssetManager*           assetManager_     = nullptr;
@@ -93,7 +95,8 @@ private:
     VkDeviceMemory           touchStagingMemory_ = VK_NULL_HANDLE;
     Vec2*                    touchMapped_      = nullptr;
     VkSemaphore              imageAvailableSemaphore_ = VK_NULL_HANDLE;
-    VkSemaphore              renderFinishedSemaphore_ = VK_NULL_HANDLE;
+    VkSemaphore              renderFinishedSemaphore_ = VK_NULL_HANDLE; // unused (kept for ABI of old code)
+    std::vector<VkSemaphore> renderFinishedSemaphores_;                 // one per swapchain image
     VkFence                  inFlightFence_    = VK_NULL_HANDLE;
 
     std::vector<VkImage>         swapchainImages_;
@@ -102,6 +105,7 @@ private:
     std::vector<VkCommandBuffer> graphicsCommandBuffers_;
     VkFormat    swapchainFormat_;
     VkExtent2D  swapchainExtent_;
+    VkSurfaceTransformFlagBitsKHR swapchainTransform_ = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 
     uint32_t    graphicsFamily_ = 0;
     uint32_t    computeFamily_  = 0;
@@ -115,6 +119,22 @@ private:
 
     ParticleParams         params_;
     std::vector<Vec2>      touchPositions_;
+
+    // ── Threading model ───────────────────────────────────────────
+    // ALL Vulkan work happens on the render thread (the one calling render()).
+    // Other threads (UI) only change plain data under mutex_ and raise request flags;
+    // the render thread picks the requests up at the start of the next frame.
+    std::mutex mutex_;
+    bool       needInitParticles_       = false;  // run init shader on next frame
+    bool       needResetAttraction_     = false;  // restore default ring of attraction points
+    bool       surfaceChangedPending_   = false;  // check whether swapchain must be rebuilt
+    bool       touchDirty_              = false;  // touchPositions_ changed -> upload
+    // Render-thread-only state
+    bool       swapchainValid_          = false;
+    bool       swapchainRecreateNeeded_ = false;
+    bool       fatalError_              = false;  // stop rendering (device lost, etc.)
+    bool       largePointsSupported_    = false;
+    int        allocatedParticles_      = 0;      // element count the GPU buffers were created for
 
     void createInstance();
     void createSurface(ANativeWindow* window);
@@ -140,6 +160,15 @@ private:
     void updateTouchBuffer();
     void setDefaultAttractionPoints();
     VkShaderModule loadShader(const std::string& path);
+    void renderImpl();
+    bool ensureSwapchain();
+    void applyPendingRequests();
+    void reallocateParticleBuffers();
+    void writeComputeDescriptors();
+    void destroyBuffer(VkBuffer& buffer, VkDeviceMemory& memory);
+    void createRenderFinishedSemaphores();
+    void recordCompute(VkCommandBuffer cmd, const ParticleParams& p, int numParticles,
+                       int numTouch, bool doInit, bool uploadTouch);
     VkCommandBuffer beginSingleTimeCommands();
     void endSingleTimeCommands(VkCommandBuffer cmd);
 };

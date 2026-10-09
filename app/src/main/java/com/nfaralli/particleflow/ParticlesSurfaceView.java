@@ -32,6 +32,10 @@ public class ParticlesSurfaceView extends SurfaceView
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
+        if (renderThread != null && renderThread.isAlive()) {
+            Log.e(TAG, "Previous render thread is still running; not starting another one");
+            return;
+        }
         running = true;
         renderThread = new RenderThread(holder);
         renderThread.start();
@@ -45,12 +49,22 @@ public class ParticlesSurfaceView extends SurfaceView
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         running = false;
+        boolean stopped = true;
         try {
-            if (renderThread != null) renderThread.join(2000);
+            if (renderThread != null) {
+                renderThread.join(3000);
+                stopped = !renderThread.isAlive();
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            stopped = false;
         }
-        renderer.destroy();
+        if (stopped) {
+            renderer.destroy();   // a new engine is created in initialize() for the next surface
+        } else {
+            // Destroying the engine under a running render thread would be a use-after-free.
+            Log.e(TAG, "Render thread did not stop in time; leaving the engine alive");
+        }
     }
 
     @Override
@@ -59,24 +73,25 @@ public class ParticlesSurfaceView extends SurfaceView
         int pointerIdx = event.getActionIndex();
         int pointerId  = event.getPointerId(pointerIdx);
 
+        // Original behaviour: every DOWN/MOVE event refreshes the points of the fingers that are
+        // present and counts a "miss" for the others (3 misses -> that point is disabled).
+        // UP/CANCEL are ignored on purpose: the last finger's point stays where it was.
         switch (action) {
             case MotionEvent.ACTION_DOWN:
             case MotionEvent.ACTION_POINTER_DOWN:
-                if (pointerId < VulkanParticlesRenderer.MAX_TOUCH_POINTS)
-                    renderer.setTouchPoint(pointerId, event.getX(pointerIdx), event.getY(pointerIdx));
-                break;
-            case MotionEvent.ACTION_MOVE:
+            case MotionEvent.ACTION_MOVE: {
+                int present = 0;
                 for (int i = 0; i < event.getPointerCount(); i++) {
                     int id = event.getPointerId(i);
-                    if (id < VulkanParticlesRenderer.MAX_TOUCH_POINTS)
+                    if (id < VulkanParticlesRenderer.MAX_TOUCH_POINTS) {
+                        present |= (1 << id);
                         renderer.setTouchPoint(id, event.getX(i), event.getY(i));
+                    }
                 }
+                renderer.touchesMissed(present);
                 break;
-            case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_POINTER_UP:
-            case MotionEvent.ACTION_CANCEL:
-                if (pointerId < VulkanParticlesRenderer.MAX_TOUCH_POINTS)
-                    renderer.releaseTouchPoint(pointerId);
+            }
+            default:
                 break;
         }
         return true;
@@ -97,18 +112,22 @@ public class ParticlesSurfaceView extends SurfaceView
 
         @Override
         public void run() {
-            if (!renderer.initialize(holder.getSurface())) {
-                Log.e(TAG, "Failed to initialize Vulkan renderer");
-                return;
-            }
-            while (running) {
-                long start = System.currentTimeMillis();
-                renderer.drawFrame();
-                long sleep = TARGET_FRAME_MS - (System.currentTimeMillis() - start);
-                if (sleep > 0) {
-                    try { Thread.sleep(sleep); }
-                    catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            try {
+                if (!renderer.initialize(holder.getSurface())) {
+                    Log.e(TAG, "Failed to initialize Vulkan renderer");
+                    return;
                 }
+                while (running) {
+                    long start = System.currentTimeMillis();
+                    renderer.drawFrame();
+                    long sleep = TARGET_FRAME_MS - (System.currentTimeMillis() - start);
+                    if (sleep > 0) {
+                        try { Thread.sleep(sleep); }
+                        catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    }
+                }
+            } catch (Throwable t) {
+                Log.e(TAG, "Render thread crashed", t);
             }
         }
     }

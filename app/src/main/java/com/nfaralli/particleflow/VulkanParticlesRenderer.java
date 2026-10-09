@@ -57,11 +57,13 @@ public class VulkanParticlesRenderer {
     public static final int   MAX_TOUCH_POINTS       = 16;
 
     // ── STATE ─────────────────────────────────────────────────
-    private long     nativeHandle = 0;
-    private Context  context;
-    private int      width  = 0;
-    private int      height = 0;
-    private boolean  initialized = false;
+    // nativeHandle is created/destroyed per Surface (see initialize()/destroy()).
+    // All GPU work happens on the render thread; UI-thread calls only post requests (thread-safe).
+    private volatile long    nativeHandle = 0;
+    private Context          context;
+    private volatile int     width  = 0;
+    private volatile int     height = 0;
+    private volatile boolean initialized = false;
 
     // Current settings
     private int   numParticles;
@@ -74,11 +76,15 @@ public class VulkanParticlesRenderer {
     private int   attractionPct;
     private int   dragPct;
 
-    // Touch tracking — pending positions written by touch thread, flushed by render thread.
-    // No frame-counter drain: points live until ACTION_UP explicitly releases them.
-    private final float[] touchX = new float[MAX_TOUCH_POINTS];
-    private final float[] touchY = new float[MAX_TOUCH_POINTS];
-    private volatile boolean touchDirty = false;
+    // Touch tracking — written by the UI thread, flushed by the render thread (touchLock).
+    // Same semantics as the original app: a point stays where it was until its pointer id has been
+    // missing from 3+ consecutive touch events; lifting the last finger does NOT clear anything.
+    private final Object  touchLock    = new Object();
+    private final float[] touchX       = new float[MAX_TOUCH_POINTS];
+    private final float[] touchY       = new float[MAX_TOUCH_POINTS];
+    private final boolean[] touchChanged = new boolean[MAX_TOUCH_POINTS];
+    private final boolean[] touchCleared = new boolean[MAX_TOUCH_POINTS];
+    private final int[]   touchMiss    = new int[MAX_TOUCH_POINTS];
 
     static {
         System.loadLibrary("particleflow");
@@ -88,38 +94,49 @@ public class VulkanParticlesRenderer {
 
     public VulkanParticlesRenderer(Context context) {
         this.context = context;
-        nativeHandle = nativeCreate();
         loadPreferences();
-        resetTouchPoints();
     }
 
     // ── LIFECYCLE ─────────────────────────────────────────────
 
+    /** Called on the render thread. Creates a fresh native engine for this Surface. */
     public boolean initialize(Surface surface) {
-        if (nativeHandle == 0) return false;
-        boolean ok = nativeInitialize(nativeHandle, surface);
-        if (ok) {
-            applyParameters();
-            nativeInitParticles(nativeHandle);
-            initialized = true;
-            Log.i(TAG, "Renderer initialized: " + numParticles + " particles");
+        if (nativeHandle != 0) destroy();          // stale engine from an earlier surface
+
+        long h = nativeCreate();
+        if (h == 0) return false;
+        nativeHandle = h;
+
+        // IMPORTANT: parameters first. nativeInitialize() sizes the GPU buffers from the particle
+        // count, so it must already know the real value (not the engine's built-in default).
+        applyParameters();
+
+        boolean ok = nativeInitialize(h, surface);
+        if (!ok) {
+            nativeHandle = 0;
+            nativeDestroy(h);
+            return false;
         }
-        return ok;
+        nativeInitParticles(h);
+        initialized = true;
+        Log.i(TAG, "Renderer initialized: " + numParticles + " particles");
+        return true;
     }
 
+    /** Call only after the render thread has stopped. */
     public void destroy() {
         initialized = false;
-        if (nativeHandle != 0) {
-            nativeDestroy(nativeHandle);
-            nativeHandle = 0;
-        }
+        long h = nativeHandle;
+        nativeHandle = 0;
+        if (h != 0) nativeDestroy(h);
     }
 
     public void onSurfaceChanged(int w, int h) {
         width  = w;
         height = h;
-        if (nativeHandle != 0) {
-            nativeOnSurfaceChanged(nativeHandle, w, h);
+        long handle = nativeHandle;
+        if (handle != 0) {
+            nativeOnSurfaceChanged(handle, w, h);   // only raises a flag natively
         }
     }
 
@@ -132,19 +149,21 @@ public class VulkanParticlesRenderer {
      * 3. Render particles
      */
     public void drawFrame() {
-        if (!initialized || nativeHandle == 0) return;
+        long handle = nativeHandle;
+        if (!initialized || handle == 0) return;
 
-        // Flush pending touch positions on render thread — avoids touch/GPU race condition.
-        // Touch events write to touchX/Y arrays (any thread); only the render thread
-        // forwards them to the native layer and triggers the GPU staging upload.
-        if (touchDirty) {
-            touchDirty = false;
-            for (int i = 0; i < numTouchPoints; i++) {
-                nativeSetTouch(nativeHandle, i, touchX[i], touchY[i]);
+        // Forward changed touch points (render thread only). The native side uploads them to the
+        // GPU inside the frame's own command buffer, so there is no CPU/GPU race.
+        synchronized (touchLock) {
+            for (int i = 0; i < MAX_TOUCH_POINTS; i++) {
+                if (touchChanged[i]) {
+                    touchChanged[i] = false;
+                    nativeSetTouch(handle, i, touchX[i], touchY[i]);
+                }
             }
         }
-        nativeUpdateParticles(nativeHandle);
-        nativeRender(nativeHandle);
+        // One call per frame: compute step + draw + present (native).
+        nativeRender(handle);
     }
 
     // ── TOUCH HANDLING ────────────────────────────────────────
@@ -157,48 +176,66 @@ public class VulkanParticlesRenderer {
      */
     public void setTouchPoint(int index, float x, float y) {
         if (index < 0 || index >= numTouchPoints) return;
-        touchX[index] = x;
-        touchY[index] = height > 0 ? (height - y) : y;  // FIX 3: flip Y to match particle coords
-        touchDirty    = true;
+        synchronized (touchLock) {
+            touchX[index] = x;
+            touchY[index] = height > 0 ? (height - y) : y;  // flip Y to particle coords
+            touchMiss[index]    = 0;
+            touchCleared[index] = false;
+            touchChanged[index] = true;
+        }
     }
 
     /**
-     * Deactivate a touch point immediately on ACTION_UP / ACTION_POINTER_UP.
-     * No frame-counter drain — points disappear the moment the finger lifts.
+     * Called once per touch event with a bitmask of the pointer ids that are present in it.
+     * Ids that are absent get a miss counter; after 3 misses the attraction point is disabled
+     * (exactly what the original app did). Never-touched ids (the initial ring) go the same way.
      */
-    public void releaseTouchPoint(int index) {
-        if (index < 0 || index >= numTouchPoints) return;
-        touchX[index] = -1.0f;
-        touchY[index] = -1.0f;
-        touchDirty    = true;
+    public void touchesMissed(int presentMask) {
+        synchronized (touchLock) {
+            for (int i = 0; i < numTouchPoints && i < MAX_TOUCH_POINTS; i++) {
+                if ((presentMask & (1 << i)) != 0) continue;
+                int c = touchMiss[i];
+                if (c < 1000) touchMiss[i] = c + 1;
+                if (c >= 3 && !touchCleared[i]) {
+                    touchX[i] = -1.0f;
+                    touchY[i] = -1.0f;
+                    touchCleared[i] = true;
+                    touchChanged[i] = true;
+                }
+            }
+        }
     }
 
-    private void resetTouchPoints() {
-        java.util.Arrays.fill(touchX, -1.0f);
-        java.util.Arrays.fill(touchY, -1.0f);
-        touchDirty = true;
-        if (nativeHandle != 0) {
-            nativeResetAttractionPoints(nativeHandle);
+    /** Immediately disable a point (not used by the default touch handling). */
+    public void releaseTouchPoint(int index) {
+        if (index < 0 || index >= numTouchPoints) return;
+        synchronized (touchLock) {
+            touchX[index] = -1.0f;
+            touchY[index] = -1.0f;
+            touchCleared[index] = true;
+            touchChanged[index] = true;
         }
     }
 
     // ── TESLA 369 ─────────────────────────────────────────────
 
     public void initTesla369() {
-        if (nativeHandle != 0) {
+        long h = nativeHandle;
+        if (h != 0) {
             numParticles  = 432000;
             attractionPct = 28;
             dragPct       = 0;
             applyParameters();
-            nativeInitTesla369Pattern(nativeHandle);
-            nativeInitParticles(nativeHandle);
+            nativeInitTesla369Pattern(h);
+            nativeInitParticles(h);
         }
     }
 
     // ── SETTINGS ─────────────────────────────────────────────
 
     public void applyParameters() {
-        if (nativeHandle == 0) return;
+        long h = nativeHandle;
+        if (h == 0) return;     // not created yet: values are applied in initialize()
 
         // Convert RGB to HSV for slow color
         float[] slowHSV = rgbToHSV(slowR, slowG, slowB);
@@ -214,7 +251,7 @@ public class VulkanParticlesRenderer {
 
         int bgColor = Color.rgb(bgR, bgG, bgB);
 
-        nativeSetParameters(nativeHandle,
+        nativeSetParameters(h,
             slowHSV[0], slowHSV[1], slowHSV[2],
             fastHSV[0], fastHSV[1], fastHSV[2],
             hueDir,
@@ -229,9 +266,10 @@ public class VulkanParticlesRenderer {
     }
 
     public void resetParticles() {
-        if (nativeHandle != 0) {
+        long h = nativeHandle;
+        if (h != 0) {
             applyParameters();
-            nativeInitParticles(nativeHandle);
+            nativeInitParticles(h);   // only raises a flag natively; runs on the render thread
         }
     }
 
@@ -379,7 +417,6 @@ public class VulkanParticlesRenderer {
                                float w, float h, int numPart, int numTouch,
                                int partSize, int bgColor);
     private native void    nativeInitParticles(long handle);
-    private native void    nativeUpdateParticles(long handle);
     private native void    nativeSetTouch(long handle, int index, float x, float y);
     private native void    nativeRender(long handle);
     private native void    nativeOnSurfaceChanged(long handle, int width, int height);
