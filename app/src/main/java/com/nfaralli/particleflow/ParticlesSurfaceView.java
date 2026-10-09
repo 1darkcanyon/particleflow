@@ -32,6 +32,7 @@ public class ParticlesSurfaceView extends SurfaceView
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
+        CrashReport.trace("surfaceCreated");
         if (renderThread != null && renderThread.isAlive()) {
             Log.e(TAG, "Previous render thread is still running; not starting another one");
             return;
@@ -43,11 +44,13 @@ public class ParticlesSurfaceView extends SurfaceView
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
+        CrashReport.trace("surfaceChanged " + w + "x" + h);
         renderer.onSurfaceChanged(w, h);
     }
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
+        CrashReport.trace("surfaceDestroyed");
         running = false;
         boolean stopped = true;
         try {

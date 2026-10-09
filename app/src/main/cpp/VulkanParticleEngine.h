@@ -42,6 +42,11 @@ struct GraphicsPushConstants {
     float pointSize;      // offset 64
 };
 
+// Breadcrumb log shared with Java (see CrashReport.java): goes to logcat AND to a file that
+// survives a native crash, so the next launch can show how far we got.
+void pfSetTracePath(const char* path);
+void pfTrace(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+
 class VulkanParticleEngine {
 public:
     VulkanParticleEngine();
@@ -133,6 +138,7 @@ private:
     bool       swapchainValid_          = false;
     bool       swapchainRecreateNeeded_ = false;
     bool       fatalError_              = false;  // stop rendering (device lost, etc.)
+    int        traceFrames_             = 0;      // breadcrumbs for the first few frames
     bool       largePointsSupported_    = false;
     int        allocatedParticles_      = 0;      // element count the GPU buffers were created for
 

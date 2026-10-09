@@ -64,6 +64,7 @@ public class VulkanParticlesRenderer {
     private volatile int     width  = 0;
     private volatile int     height = 0;
     private volatile boolean initialized = false;
+    private int frameCount = 0;   // render thread only (breadcrumbs)
 
     // Current settings
     private int   numParticles;
@@ -101,20 +102,31 @@ public class VulkanParticlesRenderer {
 
     /** Called on the render thread. Creates a fresh native engine for this Surface. */
     public boolean initialize(Surface surface) {
+        String tracePath = CrashReport.tracePath();
+        if (tracePath != null) nativeSetTracePath(tracePath);   // native breadcrumbs -> same file
+        CrashReport.trace("initialize(): begin");
+
         if (nativeHandle != 0) destroy();          // stale engine from an earlier surface
 
+        CrashReport.trace("initialize(): nativeCreate");
         long h = nativeCreate();
         if (h == 0) return false;
         nativeHandle = h;
+        frameCount = 0;
 
         // IMPORTANT: parameters first. nativeInitialize() sizes the GPU buffers from the particle
         // count, so it must already know the real value (not the engine's built-in default).
+        CrashReport.trace("initialize(): applyParameters, particles=" + numParticles
+                + " touch=" + numTouchPoints + " size=" + particleSize);
         applyParameters();
 
+        CrashReport.trace("initialize(): nativeInitialize begin");
         boolean ok = nativeInitialize(h, surface);
+        CrashReport.trace("initialize(): nativeInitialize returned " + ok);
         if (!ok) {
             nativeHandle = 0;
             nativeDestroy(h);
+            CrashReport.trace("initialize(): failed engine destroyed");
             return false;
         }
         nativeInitParticles(h);
@@ -163,7 +175,13 @@ public class VulkanParticlesRenderer {
             }
         }
         // One call per frame: compute step + draw + present (native).
+        frameCount++;
+        boolean tr = frameCount <= 3;
+        if (tr) CrashReport.trace("drawFrame " + frameCount + ": nativeRender begin");
         nativeRender(handle);
+        if (tr) CrashReport.trace("drawFrame " + frameCount + ": nativeRender done");
+        else if (frameCount == 60 || frameCount == 600 || frameCount == 3000)
+            CrashReport.trace("drawFrame " + frameCount + ": still running");
     }
 
     // ── TOUCH HANDLING ────────────────────────────────────────
@@ -422,4 +440,5 @@ public class VulkanParticlesRenderer {
     private native void    nativeOnSurfaceChanged(long handle, int width, int height);
     private native void    nativeResetAttractionPoints(long handle);
     private native void    nativeInitTesla369Pattern(long handle);
+    private native void    nativeSetTracePath(String path);
 }

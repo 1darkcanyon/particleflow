@@ -296,6 +296,22 @@ Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeResetAttractionPoin
     LOGI("Attraction points reset to default circle");
 }
 
+/**
+ * Where native breadcrumbs go (shared with Java's CrashReport)
+ * Java: nativeSetTracePath(String path)
+ */
+JNIEXPORT void JNICALL
+Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeSetTracePath(
+    JNIEnv* env, jobject obj, jstring path) {
+
+    if (path == nullptr) { pfSetTracePath(nullptr); return; }
+    const char* p = env->GetStringUTFChars(path, nullptr);
+    if (p != nullptr) {
+        pfSetTracePath(p);
+        env->ReleaseStringUTFChars(path, p);
+    }
+}
+
 } // extern "C"
 
 // ============================================================================

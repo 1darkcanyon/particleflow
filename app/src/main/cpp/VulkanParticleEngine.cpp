@@ -14,10 +14,49 @@
 #include <stdexcept>
 #include <random>
 #include <algorithm>
+#include <cstdarg>
+#include <cstdio>
+#include <string>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define LOG_TAG "ParticleFlow"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+// ═══════════════════════════════════════════════════════════════
+// BREADCRUMB TRACE (logcat + file)
+// ═══════════════════════════════════════════════════════════════
+
+static std::mutex  g_traceMutex;
+static std::string g_tracePath;
+
+void pfSetTracePath(const char* path) {
+    std::lock_guard<std::mutex> lk(g_traceMutex);
+    g_tracePath = path ? path : "";
+}
+
+void pfTrace(const char* fmt, ...) {
+    char buf[320];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", buf);
+
+    std::lock_guard<std::mutex> lk(g_traceMutex);
+    if (g_tracePath.empty()) return;
+    int fd = open(g_tracePath.c_str(), O_WRONLY | O_APPEND | O_CREAT, 0644);
+    if (fd < 0) return;
+    std::string line = "         N: ";
+    line += buf;
+    line += "\n";
+    ssize_t w = write(fd, line.data(), line.size());
+    (void)w;
+    close(fd);
+}
+
+#define PF_STEP(call) do { pfTrace("init: %s", #call); call; } while (0)
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -100,26 +139,27 @@ VulkanParticleEngine::~VulkanParticleEngine() {
 // ═══════════════════════════════════════════════════════════════
 
 bool VulkanParticleEngine::initialize(ANativeWindow* window) {
-    LOGI("Initializing Vulkan Particle Engine");
+    pfTrace("initialize(): start");
+    traceFrames_ = 0;
 
     try {
-        createInstance();
-        createSurface(window);
-        pickPhysicalDevice();
-        createLogicalDevice();
-        createSwapchain();
-        createRenderPass();
-        createFramebuffers();
-        createCommandPool();
-        createParticleBuffers();      // sized from numParticles_ (setParameters must run BEFORE initialize)
-        createTouchBuffers();
-        setDefaultAttractionPoints(); // place initial ring before first frame
-        createComputeDescriptors();
-        createComputePipelines();
-        createGraphicsPipeline();
-        createCommandBuffers();
-        createRenderFinishedSemaphores();
-        createSyncObjects();
+        PF_STEP(createInstance());
+        PF_STEP(createSurface(window));
+        PF_STEP(pickPhysicalDevice());
+        PF_STEP(createLogicalDevice());
+        PF_STEP(createSwapchain());
+        PF_STEP(createRenderPass());
+        PF_STEP(createFramebuffers());
+        PF_STEP(createCommandPool());
+        PF_STEP(createParticleBuffers());      // sized from numParticles_ (setParameters must run BEFORE initialize)
+        PF_STEP(createTouchBuffers());
+        PF_STEP(setDefaultAttractionPoints()); // place initial ring before first frame
+        PF_STEP(createComputeDescriptors());
+        PF_STEP(createComputePipelines());
+        PF_STEP(createGraphicsPipeline());
+        PF_STEP(createCommandBuffers());
+        PF_STEP(createRenderFinishedSemaphores());
+        PF_STEP(createSyncObjects());
 
         {
             std::lock_guard<std::mutex> lk(mutex_);
@@ -128,11 +168,11 @@ bool VulkanParticleEngine::initialize(ANativeWindow* window) {
         }
         swapchainValid_ = true;
         initialized_    = true;
-        LOGI("Vulkan initialization complete. Particles: %d", allocatedParticles_);
+        pfTrace("initialize(): complete, particles=%d size=%ux%u", allocatedParticles_, width_, height_);
         return true;
 
     } catch (const std::exception& e) {
-        LOGE("Vulkan init failed: %s", e.what());
+        pfTrace("initialize(): FAILED: %s", e.what());
         cleanup();
         return false;
     }
@@ -307,6 +347,10 @@ void VulkanParticleEngine::renderImpl() {
     if (!ensureSwapchain()) return;
     if (swapchainImages_.empty()) return;
 
+    const bool tr = traceFrames_ < 3;
+    const int  frameNo = ++traceFrames_;
+    if (tr) pfTrace("frame %d: begin %ux%u particles=%d allocated=%d", frameNo, width_, height_, numParticles_, allocatedParticles_);
+
     applyPendingRequests();   // may reallocate buffers (waits for the GPU) - do it before the fence wait
 
     // Wait for the previous frame to finish. The fence is only RESET right before a submit
@@ -326,6 +370,8 @@ void VulkanParticleEngine::renderImpl() {
         if (result == VK_ERROR_DEVICE_LOST || result == VK_ERROR_SURFACE_LOST_KHR) fatalError_ = true;
         return;
     }
+
+    if (tr) pfTrace("frame %d: acquired image %u (result %d)", frameNo, imageIndex, (int)result);
 
     // Snapshot everything the frame needs under the lock (UI thread may change it any time).
     ParticleParams p;
@@ -367,6 +413,7 @@ void VulkanParticleEngine::renderImpl() {
 
     // 1) physics step (touch upload + optional init + update) - same submit as the draw
     recordCompute(cmd, p, nParticles, nTouch, doInit, uploadTouch);
+    if (tr) pfTrace("frame %d: compute recorded (n=%d init=%d touchUpload=%d)", frameNo, nParticles, (int)doInit, (int)uploadTouch);
 
     // 2) draw
     VkRenderPassBeginInfo rpInfo{};
@@ -406,6 +453,7 @@ void VulkanParticleEngine::renderImpl() {
     vkCmdDraw(cmd, (uint32_t)nParticles, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
     vkEndCommandBuffer(cmd);
+    if (tr) pfTrace("frame %d: command buffer recorded, submitting", frameNo);
 
     // Submit
     VkSemaphore renderDone = renderFinishedSemaphores_[imageIndex];
@@ -428,6 +476,8 @@ void VulkanParticleEngine::renderImpl() {
         return;
     }
 
+    if (tr) pfTrace("frame %d: submitted, presenting", frameNo);
+
     // Present
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -438,6 +488,7 @@ void VulkanParticleEngine::renderImpl() {
     presentInfo.pImageIndices      = &imageIndex;
 
     result = vkQueuePresentKHR(graphicsQueue_, &presentInfo);
+    if (tr) pfTrace("frame %d: present result %d", frameNo, (int)result);
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         swapchainRecreateNeeded_ = true;
     } else if (result == VK_SUBOPTIMAL_KHR) {
@@ -568,7 +619,7 @@ void VulkanParticleEngine::applyPendingRequests() {
     }
 
     if (wantParticles != allocatedParticles_) {
-        LOGI("Resizing particle buffers: %d -> %d", allocatedParticles_, wantParticles);
+        pfTrace("resizing particle buffers: %d -> %d", allocatedParticles_, wantParticles);
         reallocateParticleBuffers();
     }
     if (doReset) setDefaultAttractionPoints();
@@ -802,6 +853,7 @@ void VulkanParticleEngine::createSwapchain() {
 }
 
 void VulkanParticleEngine::recreateSwapchain() {
+    pfTrace("recreateSwapchain: begin");
     swapchainValid_ = false;
     vkDeviceWaitIdle(device_);
     uint32_t oldW = width_, oldH = height_;
@@ -816,6 +868,7 @@ void VulkanParticleEngine::recreateSwapchain() {
 
     swapchainValid_          = true;
     swapchainRecreateNeeded_ = false;
+    pfTrace("recreateSwapchain: done %ux%u", width_, height_);
 
     if (width_ != oldW || height_ != oldH) {
         // Same as the original app: a new surface size restarts the simulation.
@@ -1344,6 +1397,7 @@ void VulkanParticleEngine::endSingleTimeCommands(VkCommandBuffer cmd) {
 void VulkanParticleEngine::cleanup() {
     // Idempotent: every handle is reset to VK_NULL_HANDLE after it is destroyed, so calling this
     // twice (failed initialize() followed by the destructor) is harmless.
+    pfTrace("cleanup: begin");
     if (device_) {
         vkDeviceWaitIdle(device_);
 
@@ -1385,5 +1439,5 @@ void VulkanParticleEngine::cleanup() {
 
     initialized_    = false;
     swapchainValid_ = false;
-    LOGI("Vulkan engine cleaned up");
+    pfTrace("cleanup: done");
 }
