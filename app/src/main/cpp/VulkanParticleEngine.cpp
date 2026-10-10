@@ -1132,6 +1132,11 @@ void VulkanParticleEngine::writeComputeDescriptors() {
 VkShaderModule VulkanParticleEngine::loadShader(const std::string& path) {
     // Load precompiled SPIR-V from assets
     AAssetManager* assetMgr = assetManager_;
+    pfTrace("loadShader: %s (asset manager %p)", path.c_str(), (void*)assetMgr);
+    if (assetMgr == nullptr) {
+        // This used to be a null-pointer crash inside AAssetManager_open.
+        throw std::runtime_error("Asset manager was never set (cannot load " + path + ")");
+    }
     AAsset* asset = AAssetManager_open(assetMgr, path.c_str(), AASSET_MODE_BUFFER);
     if (!asset) throw std::runtime_error("Failed to open shader: " + path);
 

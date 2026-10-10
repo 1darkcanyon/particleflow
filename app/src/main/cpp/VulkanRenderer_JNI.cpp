@@ -5,6 +5,8 @@
 #include <jni.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
+#include <android/asset_manager.h>
+#include <android/asset_manager_jni.h>
 #include <android/log.h>
 #include "VulkanParticleEngine.h"
 
@@ -310,6 +312,24 @@ Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeSetTracePath(
         pfSetTracePath(p);
         env->ReleaseStringUTFChars(path, p);
     }
+}
+
+/**
+ * Hands the app's AssetManager to the engine so it can load the SPIR-V shaders.
+ * Java: nativeSetAssetManager(long handle, AssetManager mgr)
+ */
+JNIEXPORT void JNICALL
+Java_com_nfaralli_particleflow_VulkanParticlesRenderer_nativeSetAssetManager(
+    JNIEnv* env, jobject obj, jlong handle, jobject assetManager) {
+
+    VulkanParticleEngine* engine = reinterpret_cast<VulkanParticleEngine*>(handle);
+    if (engine == nullptr || assetManager == nullptr) {
+        LOGE("nativeSetAssetManager: invalid arguments");
+        return;
+    }
+    AAssetManager* mgr = AAssetManager_fromJava(env, assetManager);
+    engine->setAssetManager(mgr);
+    pfTrace("asset manager set: %p", (void*)mgr);
 }
 
 } // extern "C"

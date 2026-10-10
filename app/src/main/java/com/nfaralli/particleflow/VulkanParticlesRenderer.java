@@ -65,6 +65,7 @@ public class VulkanParticlesRenderer {
     private volatile int     height = 0;
     private volatile boolean initialized = false;
     private int frameCount = 0;   // render thread only (breadcrumbs)
+    private android.content.res.AssetManager assets;   // must outlive the native engine
 
     // Current settings
     private int   numParticles;
@@ -113,6 +114,10 @@ public class VulkanParticlesRenderer {
         if (h == 0) return false;
         nativeHandle = h;
         frameCount = 0;
+
+        // The engine loads its SPIR-V shaders from assets/; without this it has no way to read them.
+        assets = context.getAssets();            // keep a strong reference for the native pointer
+        nativeSetAssetManager(h, assets);
 
         // IMPORTANT: parameters first. nativeInitialize() sizes the GPU buffers from the particle
         // count, so it must already know the real value (not the engine's built-in default).
@@ -441,4 +446,5 @@ public class VulkanParticlesRenderer {
     private native void    nativeResetAttractionPoints(long handle);
     private native void    nativeInitTesla369Pattern(long handle);
     private native void    nativeSetTracePath(String path);
+    private native void    nativeSetAssetManager(long handle, android.content.res.AssetManager mgr);
 }
