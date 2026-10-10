@@ -492,9 +492,8 @@ void VulkanParticleEngine::renderImpl() {
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         swapchainRecreateNeeded_ = true;
     } else if (result == VK_SUBOPTIMAL_KHR) {
-        // Only rebuild if the surface really changed (avoids a rebuild every frame).
-        std::lock_guard<std::mutex> lk(mutex_);
-        surfaceChangedPending_ = true;
+        // Expected on Android whenever the display is rotated and we use an IDENTITY pre-transform.
+        // Real size changes arrive through onSurfaceChanged(), so nothing to do here.
     } else if (result != VK_SUCCESS) {
         LOGE("vkQueuePresentKHR failed: %d", (int)result);
         if (result == VK_ERROR_DEVICE_LOST || result == VK_ERROR_SURFACE_LOST_KHR) fatalError_ = true;
@@ -823,7 +822,11 @@ void VulkanParticleEngine::createSwapchain() {
     createInfo.imageArrayLayers = 1;
     createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    createInfo.preTransform     = caps.currentTransform;
+    // IDENTITY: the app draws "upright" into a buffer of window size and Android's compositor rotates
+    // it to the display. (Using currentTransform here would require us to pre-rotate the picture
+    // ourselves and swap the extent - which we do not do - and the image came out sideways.)
+    createInfo.preTransform = (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+        ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR : caps.currentTransform;
     createInfo.compositeAlpha   = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
     createInfo.presentMode      = VK_PRESENT_MODE_FIFO_KHR;
     createInfo.clipped          = VK_TRUE;
