@@ -105,9 +105,9 @@ public class SettingsView extends Dialog {
         root.addView(title);
 
         // ── NUMBER OF PARTICLES ───────────────────────────────
-        root.addView(makeLabel(ctx, "Number of Particles (max 1,000,000)"));
+        root.addView(makeLabel(ctx, "Number of Particles (max 4,000,000)"));
         EditText etParticles = makeEditInt(ctx, numParticles);
-        etParticles.addTextChangedListener(new IntWatcher(1, 1000000) {
+        etParticles.addTextChangedListener(new IntWatcher(1, VulkanParticlesRenderer.MAX_PARTICLES) {
             @Override void onValue(int v) { numParticles = v; }
         });
         root.addView(etParticles);

@@ -141,6 +141,7 @@ private:
     int        traceFrames_             = 0;      // breadcrumbs for the first few frames
     bool       largePointsSupported_    = false;
     int        allocatedParticles_      = 0;      // element count the GPU buffers were created for
+    int        maxParticlesByDevice_    = 4000000; // clamped to what this GPU can address (see pickPhysicalDevice)
 
     void createInstance();
     void createSurface(ANativeWindow* window);

@@ -189,7 +189,7 @@ void VulkanParticleEngine::setParameters(
                         // Java may call this before the surface size is known (would be 0).
     std::lock_guard<std::mutex> lk(mutex_);
 
-    int n = std::max(1, std::min(numPart, MAX_PARTICLES));
+    int n = std::max(1, std::min(numPart, std::min(MAX_PARTICLES, maxParticlesByDevice_)));
     int t = std::max(1, std::min(numTouch, (int)MAX_TOUCH_POINTS));
 
     params_.slowH   = slowH;
@@ -707,6 +707,18 @@ void VulkanParticleEngine::pickPhysicalDevice() {
     vkEnumeratePhysicalDevices(instance_, &count, devices.data());
     physicalDevice_ = devices[0]; // Use first available
 
+    // How many particles can this GPU address? (storage buffer range and dispatch size limits)
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(physicalDevice_, &props);
+    {
+        uint64_t byRange  = (uint64_t)props.limits.maxStorageBufferRange / sizeof(Vec4);
+        uint64_t byGroups = (uint64_t)props.limits.maxComputeWorkGroupCount[0] * WORKGROUP_SIZE;
+        uint64_t cap = std::min<uint64_t>((uint64_t)MAX_PARTICLES, std::min(byRange, byGroups));
+        std::lock_guard<std::mutex> lk(mutex_);
+        maxParticlesByDevice_ = (int)cap;
+    }
+    pfTrace("GPU: %s, max particles on this device: %d", props.deviceName, maxParticlesByDevice_);
+
     uint32_t queueCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice_, &queueCount, nullptr);
     std::vector<VkQueueFamilyProperties> queues(queueCount);
@@ -966,26 +978,46 @@ void VulkanParticleEngine::createParticleBuffers() {
     int n;
     {
         std::lock_guard<std::mutex> lk(mutex_);
-        n = numParticles_;
+        n = std::min(numParticles_, maxParticlesByDevice_);
     }
-    VkDeviceSize posSize   = sizeof(Vec2) * (VkDeviceSize)n;
-    VkDeviceSize colorSize = sizeof(Vec4) * (VkDeviceSize)n;
 
-    createBuffer(posSize,
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        positionBuffer_, positionMemory_);
+    // If the GPU cannot allocate that much memory, halve the count until it fits instead of
+    // failing (a saved huge setting must never make the app unable to start).
+    for (;;) {
+        try {
+            VkDeviceSize posSize   = sizeof(Vec2) * (VkDeviceSize)n;
+            VkDeviceSize colorSize = sizeof(Vec4) * (VkDeviceSize)n;
 
-    createBuffer(posSize,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        velocityBuffer_, velocityMemory_);
+            createBuffer(posSize,
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                positionBuffer_, positionMemory_);
 
-    createBuffer(colorSize,
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        colorBuffer_, colorMemory_);
+            createBuffer(posSize,
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                velocityBuffer_, velocityMemory_);
 
+            createBuffer(colorSize,
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                colorBuffer_, colorMemory_);
+            break;
+        } catch (const std::exception& e) {
+            destroyBuffer(positionBuffer_, positionMemory_);
+            destroyBuffer(velocityBuffer_, velocityMemory_);
+            destroyBuffer(colorBuffer_,    colorMemory_);
+            if (n <= 50000) throw;
+            n = std::max(50000, n / 2);
+            pfTrace("particle buffer allocation failed (%s) - retrying with %d particles", e.what(), n);
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(mutex_);
+        numParticles_     = n;      // what is really allocated
+        params_.numPart   = n;
+    }
     allocatedParticles_ = n;
 }
 
